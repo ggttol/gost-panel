@@ -1,13 +1,29 @@
-import axios from 'axios'
+import axios, { type InternalAxiosRequestConfig } from 'axios'
+import { getActiveProfile } from './profiles'
 
-const baseURL = import.meta.env.VITE_GOST_API_BASE
-const username = import.meta.env.VITE_GOST_USER
-const password = import.meta.env.VITE_GOST_PASS
-
+/**
+ * Single axios instance. Per-request interceptor pulls the currently-active
+ * host profile so users can swap profiles at runtime without rebuilding the
+ * client.
+ */
 export const api = axios.create({
-  baseURL,
-  auth: username && password ? { username, password } : undefined,
   timeout: 10_000,
+})
+
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const profile = getActiveProfile()
+  if (!profile) {
+    // We could throw here, but letting axios fail with ECONNABORTED keeps the
+    // surface area for "no profile selected" handled in the UI guard layer.
+    return config
+  }
+  config.baseURL = profile.apiBase
+  if (profile.username || profile.password) {
+    config.auth = { username: profile.username ?? '', password: profile.password ?? '' }
+  } else {
+    delete config.auth
+  }
+  return config
 })
 
 export type ListResponse<T> = {

@@ -2,15 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { Pause, Play, Eraser, ArrowDownToLine } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { useProfilesState } from '@/lib/profiles'
 import { cn } from '@/lib/utils'
 
 const BUFFER_CAP = 1000
 
-const SSE_TOKEN = (import.meta.env.VITE_GOST_LOGFEED_TOKEN as string | undefined) ?? ''
-const SSE_BASE = import.meta.env.DEV
-  ? '/proxy-logs/stream'
-  : (import.meta.env.VITE_GOST_LOGFEED_URL as string | undefined) ?? '/proxy-logs/stream'
-const SSE_URL = SSE_TOKEN ? `${SSE_BASE}?t=${encodeURIComponent(SSE_TOKEN)}` : SSE_BASE
+function buildSseUrl(logfeedUrl: string | undefined, token: string | undefined): string | null {
+  // In dev mode, route through Vite proxy when the user hasn't set an explicit
+  // URL — keeps the convenient localhost setup. In prod, must be explicit.
+  const base = (logfeedUrl ?? '').trim() || (import.meta.env.DEV ? '/proxy-logs' : '')
+  if (!base) return null
+  const url = `${base.replace(/\/+$/, '')}/stream`
+  return token ? `${url}?t=${encodeURIComponent(token)}` : url
+}
 
 type Line = {
   /** Monotonic counter so React keys are unique even with identical lines. */
@@ -24,6 +28,10 @@ type Line = {
 }
 
 export function LogsPage() {
+  const { profiles, activeId } = useProfilesState()
+  const active = profiles.find((p) => p.id === activeId) ?? null
+  const sseUrl = buildSseUrl(active?.logfeedUrl, active?.logfeedToken)
+
   const [paused, setPaused] = useState(false)
   const [filter, setFilter] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
@@ -40,7 +48,12 @@ export function LogsPage() {
   const pendingRef = useRef<Line[]>([])
 
   useEffect(() => {
-    const es = new EventSource(SSE_URL)
+    // Reset feed state when switching profile / URL.
+    setLines([])
+    pendingRef.current = []
+    setConnected(false)
+    if (!sseUrl) return
+    const es = new EventSource(sseUrl)
     es.onopen = () => setConnected(true)
     es.onerror = () => setConnected(false)
     es.onmessage = (ev) => {
@@ -55,7 +68,6 @@ export function LogsPage() {
         json: !!parsed,
       })
     }
-    // Flush at most ~10 times/second; keeps a circular tail of size BUFFER_CAP.
     const flush = setInterval(() => {
       if (pendingRef.current.length === 0) return
       const incoming = pendingRef.current
@@ -71,7 +83,7 @@ export function LogsPage() {
       clearInterval(flush)
       es.close()
     }
-  }, [])
+  }, [sseUrl])
 
   useEffect(() => {
     if (!autoScroll || !bodyRef.current) return
@@ -105,7 +117,7 @@ export function LogsPage() {
           <div className="eyebrow mb-2">/telemetry / logs</div>
           <h1 className="text-[28px] leading-none font-semibold tracking-tight">日志</h1>
           <p className="text-[12px] font-mono text-[var(--color-muted)] mt-2 flex items-center gap-2">
-            <span>SSE /proxy-logs/stream</span>
+            <span>{sseUrl ? `SSE ${maskQuery(sseUrl)}` : '未配置 logfeed'}</span>
             <span>·</span>
             <span className={connected ? 'text-[var(--color-accent)]' : 'text-[var(--color-warn)]'}>
               {connected ? 'streaming' : '断开中…'}
@@ -148,10 +160,18 @@ export function LogsPage() {
         className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] font-mono text-[11.5px] leading-[1.55] h-[68vh] overflow-y-auto"
       >
         {filtered.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-[12px] text-[var(--color-muted)]">
-            {connected
-              ? '已连接，等待 gost 输出…（触发一些流量看效果）'
-              : '正在连接日志流…'}
+          <div className="h-full flex flex-col items-center justify-center text-[12px] text-[var(--color-muted)] gap-1 px-4 text-center">
+            {!sseUrl ? (
+              <>
+                <span className="text-[var(--color-fg-2)] font-medium">当前主机未配置日志边车</span>
+                <span>在「主机连接」里填上 gost-logfeed 的 URL + token 后即可看日志。</span>
+                <span className="text-[10px] opacity-70">部署边车看 README · 「日志边车」一节</span>
+              </>
+            ) : connected ? (
+              <span>已连接，等待 gost 输出…（触发一些流量看效果）</span>
+            ) : (
+              <span>正在连接日志流…</span>
+            )}
           </div>
         ) : (
           <ul>
@@ -206,6 +226,10 @@ function Pretty({ obj }: { obj: Record<string, unknown> }) {
       ) : null}
     </span>
   )
+}
+
+function maskQuery(url: string): string {
+  return url.replace(/([?&]t=)[^&]+/g, '$1***')
 }
 
 function tryJson(s: string): Record<string, unknown> | null {

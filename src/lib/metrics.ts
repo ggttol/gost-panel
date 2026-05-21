@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { getActiveProfile } from './profiles'
 
 export type MetricSample = {
   name: string
@@ -12,7 +13,6 @@ export function parsePromText(text: string): MetricSample[] {
   for (const raw of lines) {
     const line = raw.trim()
     if (!line || line.startsWith('#')) continue
-    // metric_name{lab="v",l2="v2"} 123 [optional ts]
     const m = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{([^}]*)\})?\s+(\S+)/)
     if (!m) continue
     const [, name, , labelStr, valStr] = m
@@ -53,20 +53,13 @@ export function groupSumByLabel(
   )
 }
 
-export type MetricsConfig = {
-  base: string
-  username?: string
-  password?: string
-}
-
-function deriveMetricsBase(): string {
-  // In dev, Vite proxies /proxy-metrics → gost :9000/metrics (avoids CORS).
-  // In prod, deploy behind a reverse proxy that exposes the same path.
-  if (import.meta.env.DEV) return '/proxy-metrics'
-  const apiBase = import.meta.env.VITE_GOST_API_BASE as string | undefined
-  if (!apiBase) return ''
+export function deriveMetricsUrl(): string {
+  const profile = getActiveProfile()
+  if (!profile) return ''
+  if (profile.metricsUrl) return profile.metricsUrl
+  // Fall back: swap port 18080 for 9000 in apiBase. Works for the common case.
   try {
-    const u = new URL(apiBase)
+    const u = new URL(profile.apiBase)
     u.pathname = '/metrics'
     if (u.port === '18080' || u.port === '') u.port = '9000'
     u.search = ''
@@ -77,9 +70,10 @@ function deriveMetricsBase(): string {
 }
 
 export function useMetrics(intervalMs: number, enabled: boolean) {
-  const url = deriveMetricsBase()
+  const url = deriveMetricsUrl()
+  const profileId = getActiveProfile()?.id ?? 'none'
   return useQuery({
-    queryKey: ['metrics', url],
+    queryKey: ['metrics', profileId, url],
     enabled: !!url && enabled,
     refetchInterval: enabled ? intervalMs : false,
     refetchIntervalInBackground: false,

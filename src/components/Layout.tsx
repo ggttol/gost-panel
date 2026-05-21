@@ -26,6 +26,7 @@ import { RESOURCES, type ResourceDef, type ResourceKey } from '@/lib/resources'
 import { GROUP_LABEL_ZH, RESOURCE_LABEL_ZH, T } from '@/lib/i18n'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { HostSwitcher } from '@/components/HostSwitcher'
 
 const groupOrder = ['Core', 'Policy', 'Routing', 'Resolve', 'Telemetry', 'Limit']
 
@@ -68,12 +69,10 @@ export function Layout() {
 }
 
 function Sidebar() {
-  const base = import.meta.env.VITE_GOST_API_BASE as string | undefined
-  const host = base ? new URL(base).host : 'unknown'
-
   return (
     <aside className="w-[248px] shrink-0 border-r border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface)_70%,transparent)] backdrop-blur-sm flex flex-col">
-      <Brand host={host} />
+      <HostSwitcher />
+      <HealthStrip />
 
       <nav className="px-3 pb-6 overflow-y-auto flex-1">
         <NavSection seq="00" title={T.nav.global}>
@@ -101,16 +100,13 @@ function Sidebar() {
   )
 }
 
-function Brand({ host }: { host: string }) {
+function HealthStrip() {
   const ping = useQuery({
     queryKey: ['health'],
     queryFn: async () => {
       await api.get('/config/services')
       return Date.now()
     },
-    // Healthy: probe every 8s. Once a probe fails we back off to 30s so we
-    // don't hammer an unreachable host (and the user can see the offline pill
-    // promptly without spamming the network).
     refetchInterval: (q) => (q.state.error ? 30_000 : 8_000),
     refetchIntervalInBackground: false,
     retry: 0,
@@ -119,35 +115,25 @@ function Brand({ host }: { host: string }) {
   const online = ping.isSuccess && !ping.isError
 
   return (
-    <div className="px-4 pt-5 pb-4 border-b border-[var(--color-border)]">
-      <div className="flex items-baseline gap-2">
-        <div className="text-[15px] font-semibold tracking-tight text-[var(--color-fg)]">
-          gost
-        </div>
-        <div className="eyebrow leading-none">control plane</div>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-[11px] font-mono text-[var(--color-muted)]">
-        <span
-          className={cn(
-            'inline-block h-1.5 w-1.5 rounded-full',
-            online
-              ? 'bg-[var(--color-accent)] pulse-dot'
-              : ping.isPending
-                ? 'bg-[var(--color-warn)]'
-                : 'bg-[var(--color-danger)]',
-          )}
-        />
-        <span
-          className={cn(
-            'uppercase tracking-[0.12em]',
-            online ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]',
-          )}
-        >
-          {online ? 'online' : ping.isPending ? 'probing' : 'offline'}
-        </span>
-        <span className="text-[var(--color-muted)]">·</span>
-        <span className="truncate">{host}</span>
-      </div>
+    <div className="px-4 py-2 border-b border-[var(--color-border)] flex items-center gap-2 text-[10px] font-mono text-[var(--color-muted)]">
+      <span
+        className={cn(
+          'inline-block h-1.5 w-1.5 rounded-full',
+          online
+            ? 'bg-[var(--color-accent)] pulse-dot'
+            : ping.isPending
+              ? 'bg-[var(--color-warn)]'
+              : 'bg-[var(--color-danger)]',
+        )}
+      />
+      <span
+        className={cn(
+          'uppercase tracking-[0.12em]',
+          online ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]',
+        )}
+      >
+        {online ? 'online' : ping.isPending ? 'probing' : 'offline'}
+      </span>
     </div>
   )
 }
