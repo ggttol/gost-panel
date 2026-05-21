@@ -15,6 +15,43 @@ export type RecipeVar = {
   default: string
   hint?: string
   type?: 'text' | 'number' | 'password'
+  /** 启用"生成"按钮；按 kind 在浏览器里用 crypto.getRandomValues 现场生成 */
+  generate?: 'base64-16' | 'base64-32' | 'hex-8' | 'hex-16' | 'password-16' | 'password-32' | 'uuid'
+}
+
+/** Generate a random value matching the requested kind. Uses Web Crypto. */
+export function generateVarValue(kind: NonNullable<RecipeVar['generate']>): string {
+  switch (kind) {
+    case 'base64-16':   return base64Of(randomBytes(16))
+    case 'base64-32':   return base64Of(randomBytes(32))
+    case 'hex-8':       return hexOf(randomBytes(8))
+    case 'hex-16':      return hexOf(randomBytes(16))
+    case 'password-16': return passwordOf(16)
+    case 'password-32': return passwordOf(32)
+    case 'uuid':        return (crypto.randomUUID?.() ?? hexOf(randomBytes(16)))
+  }
+}
+
+function randomBytes(n: number): Uint8Array {
+  const a = new Uint8Array(n)
+  crypto.getRandomValues(a)
+  return a
+}
+function base64Of(a: Uint8Array): string {
+  let s = ''
+  for (const b of a) s += String.fromCharCode(b)
+  return typeof btoa === 'function' ? btoa(s) : ''
+}
+function hexOf(a: Uint8Array): string {
+  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+function passwordOf(n: number): string {
+  // 排除易混字符 (0/O, 1/l/I) — 抄写 / 口述场景友好
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  const a = randomBytes(n)
+  let s = ''
+  for (const b of a) s += alphabet[b % alphabet.length]
+  return s
 }
 
 export type RecipeResource = {
@@ -117,7 +154,7 @@ export const RECIPES: Recipe[] = [
     describe: '先建一个 auther（账号清单），再让 service 引用它。多用户也支持 — 直接编辑 auther 加行即可。',
     vars: [
       { key: 'user', label: '用户名', default: 'alice' },
-      { key: 'pass', label: '密码', default: 'changeme', type: 'password' },
+      { key: 'pass', label: '密码', default: 'changeme', type: 'password', generate: 'password-16' },
     ],
     resources: [
       {
@@ -298,7 +335,7 @@ export const RECIPES: Recipe[] = [
     describe: 'rtcp = reverse TCP。本配方建的是**公网侧**的"接收端"；家里那台需要另外配 gost 客户端用 rtcp connector 主动连进来。详见 gost.run/docs/concepts/tunnel。',
     vars: [
       { key: 'inner', label: '家里目标 host:port', default: '192.168.1.10:22' },
-      { key: 'tunnel_id', label: 'tunnel 标识', default: 'home-ssh', hint: '客户端要用同样的标识连过来' },
+      { key: 'tunnel_id', label: 'tunnel 标识', default: 'home-ssh', hint: '客户端要用同样的标识连过来', generate: 'hex-8' },
       { key: 'expose_port', label: '公网暴露端口', default: '12022', type: 'number' },
     ],
     resources: [
@@ -389,7 +426,7 @@ export const RECIPES: Recipe[] = [
     vars: [
       { key: 'port', label: '监听端口', default: '8388', type: 'number' },
       { key: 'method', label: '加密方式', default: 'aes-128-gcm' },
-      { key: 'password', label: 'SS 密码', default: '', type: 'password' },
+      { key: 'password', label: 'SS 密码', default: '', type: 'password', generate: 'password-32', hint: '强随机密码；点右边「生成」按钮一键来一个' },
     ],
     resources: [
       {
@@ -473,9 +510,9 @@ export const RECIPES: Recipe[] = [
     describe: '一个 auther 里塞多个账号；service 引用它即可。要看谁连进来，开启 service.handler.metadata.observer + observer 资源（这条 cookbook 暂未涵盖）。',
     vars: [
       { key: 'u1', label: '账号 1', default: 'alice' },
-      { key: 'p1', label: '密码 1', default: 'changeme1', type: 'password' },
+      { key: 'p1', label: '密码 1', default: 'changeme1', type: 'password', generate: 'password-16' },
       { key: 'u2', label: '账号 2', default: 'bob' },
-      { key: 'p2', label: '密码 2', default: 'changeme2', type: 'password' },
+      { key: 'p2', label: '密码 2', default: 'changeme2', type: 'password', generate: 'password-16' },
     ],
     resources: [
       {
@@ -642,7 +679,7 @@ export const RECIPES: Recipe[] = [
     describe: '公网侧建一个 rtcp service 接收回连 + 暴露 HTTP；家里再用 gost CLI 起 -L rtcp 主动连过来。比 frp 简单，但功能也朴素。',
     vars: [
       { key: 'inner_web',  label: '家里 Web host:port',    default: '192.168.1.50:80' },
-      { key: 'tunnel_id',  label: 'tunnel 标识',          default: 'home-web' },
+      { key: 'tunnel_id',  label: 'tunnel 标识',          default: 'home-web', generate: 'hex-8' },
       { key: 'expose',     label: '公网暴露端口',          default: '8080', type: 'number' },
     ],
     resources: [
@@ -728,8 +765,8 @@ export const RECIPES: Recipe[] = [
     describe: 'SS-2022 加了 EIH 鉴权和重放保护，主动探测难度大幅提升。密码必须 base64 强随机，长度由 method 决定（aes-128=16B、aes-256=32B）。',
     vars: [
       { key: 'port', label: '端口', default: '8388', type: 'number' },
-      { key: 'method', label: '加密方式', default: '2022-blake3-aes-256-gcm', hint: '推荐 2022-blake3-aes-256-gcm' },
-      { key: 'password', label: 'base64 密码', default: '', type: 'password', hint: '用 `openssl rand -base64 32` 生成' },
+      { key: 'method', label: '加密方式', default: '2022-blake3-aes-256-gcm', hint: '推荐 2022-blake3-aes-256-gcm（密钥长度 32 字节）；2022-blake3-aes-128-gcm 用 16 字节' },
+      { key: 'password', label: 'base64 密码', default: '', type: 'password', generate: 'base64-32', hint: '点「生成」一键 base64(32 字节)；aes-128-gcm 请改成 16 字节生成' },
     ],
     resources: [
       {
@@ -977,6 +1014,403 @@ export const RECIPES: Recipe[] = [
       },
     ],
     client: ['# wg 客户端 Endpoint 改成 {{host}}:{{expose}}'],
+  },
+
+  // ───────── 高级代理 ─────────
+  {
+    key: 'triple-hop-chain',
+    category: 'proxy',
+    label: '三跳链式代理（多机场套娃）',
+    scene: '本机 SOCKS5 → 跳板 A → 跳板 B → 出口 C。每跳都换一层，落点 IP 跟你完全无关。',
+    describe: '建 3 个 hop（各对应一台上游），chain 按顺序串接。延迟会叠加，但每跳的中间人都看不到原始来源。常用于对落点 IP 有强要求的场景。',
+    vars: [
+      { key: 'hop1', label: '第 1 跳上游', default: 'jp.example.com:1080' },
+      { key: 'hop2', label: '第 2 跳上游', default: 'us.example.com:1080' },
+      { key: 'hop3', label: '第 3 跳上游', default: 'eu.example.com:1080' },
+    ],
+    resources: [
+      { kind: 'hops', name: 'hop-l1', body: { nodes: [{ name: 'n', addr: '{{hop1}}', connector: { type: 'socks5' }, dialer: { type: 'tcp' } }] } },
+      { kind: 'hops', name: 'hop-l2', body: { nodes: [{ name: 'n', addr: '{{hop2}}', connector: { type: 'socks5' }, dialer: { type: 'tcp' } }] } },
+      { kind: 'hops', name: 'hop-l3', body: { nodes: [{ name: 'n', addr: '{{hop3}}', connector: { type: 'socks5' }, dialer: { type: 'tcp' } }] } },
+      {
+        kind: 'chains',
+        name: 'chain-triple',
+        body: { hops: [{ name: 'hop-l1' }, { name: 'hop-l2' }, { name: 'hop-l3' }] },
+      },
+      {
+        kind: 'services',
+        name: 'socks5-triple-1090',
+        body: {
+          addr: ':1090',
+          handler: { type: 'socks5', chain: 'chain-triple' },
+          listener: { type: 'tcp' },
+        },
+      },
+    ],
+    client: [
+      'curl --socks5-hostname {{host}}:1090 https://ifconfig.me',
+      '# 延迟可能从 50ms 飙到 300ms+，吞吐也会下降',
+    ],
+  },
+
+  {
+    key: 'ipv6-egress',
+    category: 'proxy',
+    label: 'IPv6 出口偏好',
+    scene: '上游域名同时有 A 和 AAAA 记录时，强制走 IPv6 出去（很多场景 v6 没走过 NAT，速度好）。',
+    describe: 'service.resolver 引用一个偏好 ipv6 的解析器；本配方先建 resolver-v6 然后给一个 socks5 service 把它绑上。已有的 service 可以编辑里直接挂这个 resolver。',
+    vars: [
+      { key: 'doh_url', label: 'DoH 上游', default: 'https://1.0.0.1/dns-query' },
+    ],
+    resources: [
+      {
+        kind: 'resolvers',
+        name: 'resolver-v6-only',
+        body: { nameservers: [{ addr: '{{doh_url}}', prefer: 'ipv6' }] },
+      },
+      {
+        kind: 'services',
+        name: 'socks5-v6-1091',
+        body: {
+          addr: ':1091',
+          handler: { type: 'socks5' },
+          listener: { type: 'tcp' },
+          resolver: 'resolver-v6-only',
+        },
+      },
+    ],
+    client: [
+      'curl --socks5-hostname {{host}}:1091 https://test-ipv6.com/',
+      '# 应返回 You have IPv6',
+    ],
+  },
+
+  {
+    key: 'socks5-grpc-cdn',
+    category: 'special',
+    label: 'SOCKS5 over gRPC + Cloudflare CDN',
+    scene: 'WSS 不够用了？换 gRPC：HTTP/2 + Protobuf 流，CDN 兼容性更好，对 DPI 看起来就是普通 gRPC 服务。',
+    describe: '需要真实域名解析到 Cloudflare（CNAME flatten 或直接 A 记录），CF 后端回源走 grpcs 到你的源站；gost 这边用 gRPC listener + 真实 LE 证书。Cloudflare 控制台 → SSL 设置成 Full (strict)。',
+    vars: [
+      { key: 'cert_file', label: 'fullchain.pem', default: '/etc/letsencrypt/live/example.com/fullchain.pem' },
+      { key: 'key_file',  label: 'privkey.pem',   default: '/etc/letsencrypt/live/example.com/privkey.pem' },
+      { key: 'grpc_path', label: 'gRPC 服务路径', default: '/proxy.Tun/Stream', hint: 'CDN 看到的 URL path' },
+      { key: 'port',      label: '回源端口',       default: '443', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'socks5-grpc-{{port}}',
+        body: {
+          addr: ':{{port}}',
+          handler: { type: 'socks5' },
+          listener: {
+            type: 'grpc',
+            tls: { certFile: '{{cert_file}}', keyFile: '{{key_file}}' },
+            metadata: { path: '{{grpc_path}}' },
+          },
+        },
+      },
+    ],
+    client: [
+      '# 客户端（另一台 gost）：',
+      'gost -L socks5://:1080 -F "socks5+grpc://example.com:443?path={{grpc_path}}"',
+    ],
+  },
+
+  {
+    key: 'http3-quic',
+    category: 'special',
+    label: 'HTTP/3 (QUIC) 翻墙传输',
+    scene: 'TCP 阻断或者 RST 严重时换 UDP-based QUIC。HTTP/3 也是公开标准协议，DPI 难以单独黑掉。',
+    describe: 'QUIC 自带 TLS 1.3 + 0-RTT，握手成本低、上行下行复用一个 UDP 端口。注意：UDP 在某些劣质宽带会被 QoS 降速，自测。',
+    vars: [
+      { key: 'cert_file', label: 'fullchain.pem', default: '/etc/letsencrypt/live/example.com/fullchain.pem' },
+      { key: 'key_file',  label: 'privkey.pem',   default: '/etc/letsencrypt/live/example.com/privkey.pem' },
+      { key: 'port',      label: 'QUIC 端口',     default: '443', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'socks5-quic-{{port}}',
+        body: {
+          addr: ':{{port}}',
+          handler: { type: 'socks5' },
+          listener: {
+            type: 'quic',
+            tls: { certFile: '{{cert_file}}', keyFile: '{{key_file}}' },
+          },
+        },
+      },
+    ],
+    client: [
+      'gost -L socks5://:1080 -F "socks5+quic://example.com:{{port}}"',
+    ],
+  },
+
+  {
+    key: 'sni-routing',
+    category: 'special',
+    label: 'SNI 分流（一个 443 端口背多个上游）',
+    scene: '同一台机器 :443 想同时承载多个域名（不解 TLS，按 SNI 路由）。比 nginx stream + ssl_preread 简洁。',
+    describe: 'gost sni handler 不解密 TLS，按 ClientHello 里的 SNI 字段路由到不同后端。要把每个域名解析到本机，gost 看 SNI 决定送给谁。',
+    vars: [
+      { key: 'site_a_sni',    label: '域名 A',           default: 'siteA.example.com' },
+      { key: 'site_a_target', label: '后端 A',           default: '192.168.1.10:443' },
+      { key: 'site_b_sni',    label: '域名 B',           default: 'siteB.example.com' },
+      { key: 'site_b_target', label: '后端 B',           default: '192.168.1.11:443' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'sni-router-443',
+        body: {
+          addr: ':443',
+          handler: { type: 'sni' },
+          listener: { type: 'tcp' },
+          forwarder: {
+            nodes: [
+              { name: '{{site_a_sni}}', addr: '{{site_a_target}}' },
+              { name: '{{site_b_sni}}', addr: '{{site_b_target}}' },
+            ],
+          },
+        },
+      },
+    ],
+    client: [
+      '# 把两个域名都解析到 {{host}}，然后访问对应域名会落到对应后端：',
+      'curl https://{{site_a_sni}}/   # → {{site_a_target}}',
+      'curl https://{{site_b_sni}}/   # → {{site_b_target}}',
+    ],
+  },
+
+  {
+    key: 'protocol-bridge-http-to-socks5',
+    category: 'proxy',
+    label: '协议转换：HTTP 进 → SOCKS5 出',
+    scene: '你买的机场只给 SOCKS5；但本地某 docker 服务只支持 http_proxy 不认 SOCKS5。一行配置桥接。',
+    describe: '本机暴露 HTTP 代理，所有流量走 chain 转成 SOCKS5 出去。反过来 SOCKS5→HTTP 也类似，把 handler/connector 类型换一下即可。',
+    vars: [
+      { key: 'upstream_socks5', label: '上游 SOCKS5', default: 'proxy.example.com:1080' },
+    ],
+    resources: [
+      {
+        kind: 'hops',
+        name: 'hop-bridge-socks5',
+        body: {
+          nodes: [{
+            name: 'upstream',
+            addr: '{{upstream_socks5}}',
+            connector: { type: 'socks5' },
+            dialer: { type: 'tcp' },
+          }],
+        },
+      },
+      {
+        kind: 'chains',
+        name: 'chain-bridge',
+        body: { hops: [{ name: 'hop-bridge-socks5' }] },
+      },
+      {
+        kind: 'services',
+        name: 'http-bridge-8088',
+        body: {
+          addr: ':8088',
+          handler: { type: 'http', chain: 'chain-bridge' },
+          listener: { type: 'tcp' },
+        },
+      },
+    ],
+    client: [
+      'export http_proxy=http://{{host}}:8088',
+      'curl https://ifconfig.me   # 实际从机场 SOCKS5 出去',
+    ],
+  },
+
+  // ───────── 安全 / 蜜罐 ─────────
+  {
+    key: 'honeypot-socks5',
+    category: 'security',
+    label: '蜜罐 SOCKS5（记录扫描者）',
+    scene: ':1080 暴露在公网总有人扫——开个假的 SOCKS5，所有连接拒绝同时把 IP 记下来报警。',
+    describe: '建一个 whitelist=true 但 matchers 为空的 admission（什么都不放行）+ recorder 落盘。任何尝试连接都会被拒、并在日志里留下来源。配合 fail2ban 自动 ban。',
+    vars: [
+      { key: 'log_path', label: '探测日志路径', default: '/var/log/gost/scanners.log' },
+      { key: 'port',     label: '伪装端口',     default: '1080', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'admissions',
+        name: 'admit-nobody',
+        body: { whitelist: true, matchers: ['127.0.0.1/32'] },
+      },
+      {
+        kind: 'recorders',
+        name: 'recorder-scanners',
+        body: { file: { path: '{{log_path}}' } },
+      },
+      {
+        kind: 'services',
+        name: 'honeypot-{{port}}',
+        body: {
+          addr: ':{{port}}',
+          handler: { type: 'socks5' },
+          listener: { type: 'tcp' },
+          admission: 'admit-nobody',
+          recorders: [{ name: 'recorder-scanners', record: 'recorder.service.handler' }],
+        },
+      },
+    ],
+    client: [
+      '# 外人尝试连接会直接被拒，日志里会有：',
+      'tail -f {{log_path}}',
+      '# 形如：{"client":"1.2.3.4:5678","time":"...","action":"reject"}',
+    ],
+  },
+
+  // ───────── 转发：四层 LB / VPN 端口 ─────────
+  {
+    key: 'proxy-protocol-passthrough',
+    category: 'forward',
+    label: 'PROXY protocol 透传（保留真实客户端 IP）',
+    scene: 'gost 当四层 LB，后端是 nginx / HAProxy / postfix 等想拿到真实客户端 IP（不是 LB IP）。',
+    describe: '开启 PROXY protocol v2，gost 在转发前给后端加一个二进制 header 告诉它真实来源。后端要 enable proxy_protocol on（nginx 是 listen 80 proxy_protocol）。',
+    vars: [
+      { key: 'backend', label: '后端地址', default: '192.168.1.10:80' },
+      { key: 'expose',  label: '入口端口', default: '80', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'tcp-proxyproto-{{expose}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'tcp', metadata: { proxyProtocol: 2 } },
+          listener: { type: 'tcp' },
+          forwarder: { nodes: [{ name: 'backend', addr: '{{backend}}' }] },
+        },
+      },
+    ],
+    client: [
+      '# nginx 后端 server 段：',
+      'listen 80 proxy_protocol;',
+      'set_real_ip_from <gost 主机 IP>;',
+      'real_ip_header proxy_protocol;',
+      '# 之后 access log 里就是真实客户端 IP 而不是 gost IP',
+    ],
+  },
+
+  {
+    key: 'openvpn-forward',
+    category: 'forward',
+    label: 'OpenVPN UDP / TCP 端口转发',
+    scene: '把 OpenVPN 服务（在内网或要保护的机器上）通过 gost 暴露出去。',
+    describe: 'OpenVPN 默认 1194/UDP；如果走 TCP 则 1194/TCP。建两个 service 分别转发 UDP+TCP，客户端按服务端配置选择。',
+    vars: [
+      { key: 'ovpn_target', label: '内网 OpenVPN host:port', default: '192.168.1.20:1194' },
+      { key: 'expose',      label: '暴露端口',                default: '1194', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'ovpn-udp-{{expose}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'udp' },
+          listener: { type: 'udp' },
+          forwarder: { nodes: [{ name: 'ovpn', addr: '{{ovpn_target}}' }] },
+        },
+      },
+    ],
+    client: [
+      '# 客户端 .ovpn 文件 remote 改成：',
+      'remote {{host}} {{expose}} udp',
+    ],
+  },
+
+  {
+    key: 'l2tp-ipsec-forward',
+    category: 'forward',
+    label: 'L2TP/IPSec 端口转发',
+    scene: '把内网 L2TP/IPSec VPN 服务通过 gost 主机暴露：IKE/500、NAT-T/4500（都是 UDP）。',
+    describe: '⚠️ 注意：IPSec ESP（协议号 50）是 IP 层不是 UDP，纯端口转发覆盖不到。这条只覆盖 IKE 协商部分；想完全转发 ESP 需要 IPSec passthrough（gost 不直接支持，建议改用 L2TP over UDP 模式 / NAT-T）。',
+    vars: [
+      { key: 'vpn_host', label: '内网 VPN host', default: '192.168.1.30' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'ipsec-ike-500',
+        body: { addr: ':500',  handler: { type: 'udp' }, listener: { type: 'udp' }, forwarder: { nodes: [{ name: 'ike',  addr: '{{vpn_host}}:500'  }] } },
+      },
+      {
+        kind: 'services',
+        name: 'ipsec-natt-4500',
+        body: { addr: ':4500', handler: { type: 'udp' }, listener: { type: 'udp' }, forwarder: { nodes: [{ name: 'natt', addr: '{{vpn_host}}:4500' }] } },
+      },
+    ],
+    client: ['# VPN 客户端服务器地址填 {{host}}；优先用 NAT-T 模式'],
+  },
+
+  // ───────── DNS / 域名 ─────────
+  {
+    key: 'adblock-hosts',
+    category: 'special',
+    label: '广告 / 跟踪屏蔽 hosts',
+    scene: '给所有走代理的流量套一份"hosts 黑名单"——常见广告 / 跟踪 / 遥测域名全部解析到 0.0.0.0，自动屏蔽。',
+    describe: '只是入门级的几十条样本；想全量挡建议拉 StevenBlack/hosts 这种大列表后用脚本批量灌入或者切到 AdGuard Home。这条作为"原来还能这么用"的演示。',
+    vars: [],
+    resources: [
+      {
+        kind: 'hosts',
+        name: 'hosts-adblock',
+        body: {
+          mappings: [
+            { ip: '0.0.0.0', hostname: 'doubleclick.net',          aliases: ['ad.doubleclick.net'] },
+            { ip: '0.0.0.0', hostname: 'googlesyndication.com',    aliases: ['pagead2.googlesyndication.com'] },
+            { ip: '0.0.0.0', hostname: 'google-analytics.com',     aliases: ['ssl.google-analytics.com'] },
+            { ip: '0.0.0.0', hostname: 'googletagmanager.com' },
+            { ip: '0.0.0.0', hostname: 'scorecardresearch.com' },
+            { ip: '0.0.0.0', hostname: 'hotjar.com' },
+            { ip: '0.0.0.0', hostname: 'mixpanel.com' },
+            { ip: '0.0.0.0', hostname: 'segment.io' },
+            { ip: '0.0.0.0', hostname: 'criteo.com' },
+            { ip: '0.0.0.0', hostname: 'amplitude.com' },
+          ],
+        },
+      },
+    ],
+    client: [
+      '# 给任意 service / chain 编辑里 hosts 字段选 hosts-adblock',
+      '# 之后被代理的请求里这些域名解析失败 → 广告不显示',
+    ],
+  },
+
+  {
+    key: 'dns-via-chain',
+    category: 'special',
+    label: 'DNS 走代理隧道出去（防本地 DNS 污染）',
+    scene: '本地 DNS 被污染 / 劫持时，让 chain 自己用上游域名解析。',
+    describe: 'resolver 用 DoH，并且也指定走某条 chain 出去——查询本身也被代理保护。',
+    vars: [
+      { key: 'doh_url', label: 'DoH 上游', default: 'https://1.0.0.1/dns-query' },
+      { key: 'chain_name', label: 'chain 名（用来解析时走出口）', default: 'chain-out', hint: '该 chain 必须已存在' },
+    ],
+    resources: [
+      {
+        kind: 'resolvers',
+        name: 'resolver-via-chain',
+        body: {
+          nameservers: [
+            { addr: '{{doh_url}}', chain: '{{chain_name}}', prefer: 'ipv4' },
+          ],
+        },
+      },
+    ],
+    client: [
+      '# 把任意 service 的 resolver 字段挂上 resolver-via-chain',
+      '# 该 service 收到客户端请求后，DNS 也会被打到 {{chain_name}} 出去再做 DoH 解析',
+    ],
   },
 ]
 
