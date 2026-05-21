@@ -1088,39 +1088,6 @@ export const RECIPES: Recipe[] = [
   },
 
   {
-    key: 'socks5-grpc-cdn',
-    category: 'special',
-    label: 'SOCKS5 over gRPC + Cloudflare CDN',
-    scene: 'WSS 不够用了？换 gRPC：HTTP/2 + Protobuf 流，CDN 兼容性更好，对 DPI 看起来就是普通 gRPC 服务。',
-    describe: '需要真实域名解析到 Cloudflare（CNAME flatten 或直接 A 记录），CF 后端回源走 grpcs 到你的源站；gost 这边用 gRPC listener + 真实 LE 证书。Cloudflare 控制台 → SSL 设置成 Full (strict)。',
-    vars: [
-      { key: 'cert_file', label: 'fullchain.pem', default: '/etc/letsencrypt/live/example.com/fullchain.pem' },
-      { key: 'key_file',  label: 'privkey.pem',   default: '/etc/letsencrypt/live/example.com/privkey.pem' },
-      { key: 'grpc_path', label: 'gRPC 服务路径', default: '/proxy.Tun/Stream', hint: 'CDN 看到的 URL path' },
-      { key: 'port',      label: '回源端口',       default: '443', type: 'number' },
-    ],
-    resources: [
-      {
-        kind: 'services',
-        name: 'socks5-grpc-{{port}}',
-        body: {
-          addr: ':{{port}}',
-          handler: { type: 'socks5' },
-          listener: {
-            type: 'grpc',
-            tls: { certFile: '{{cert_file}}', keyFile: '{{key_file}}' },
-            metadata: { path: '{{grpc_path}}' },
-          },
-        },
-      },
-    ],
-    client: [
-      '# 客户端（另一台 gost）：',
-      'gost -L socks5://:1080 -F "socks5+grpc://example.com:443?path={{grpc_path}}"',
-    ],
-  },
-
-  {
     key: 'http3-quic',
     category: 'special',
     label: 'HTTP/3 (QUIC) 翻墙传输',
