@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { isAxiosError } from 'axios'
-import { Loader2, Sparkles, Copy, Eye, EyeOff } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+import { PasswordField } from '@/components/ui/PasswordField'
 import {
   Dialog,
   DialogClose,
@@ -19,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { EditorJson } from '@/components/ui/EditorJson'
 import { api } from '@/lib/api'
 import { getActiveProfile } from '@/lib/profiles'
-import { defaultVars, generateVarValue, substitute, type Recipe, type RecipeVar, type VarMap } from '@/lib/cookbook'
+import { defaultVars, substitute, type Recipe, type RecipeVar, type VarMap } from '@/lib/cookbook'
 import { RESOURCE_LABEL_ZH } from '@/lib/i18n'
 
 export function RecipeDialog({
@@ -208,80 +209,26 @@ function VarInput({
   onChange: (s: string) => void
   disabled?: boolean
 }) {
-  const [revealed, setRevealed] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const isSecret = v.type === 'password'
-  const inputType = isSecret && !revealed ? 'password' : v.type === 'number' ? 'number' : 'text'
-
-  function gen() {
-    if (!v.generate) return
-    onChange(generateVarValue(v.generate))
-    setRevealed(true)
-    toast.success(`已生成 ${labelFor(v.generate)}`)
-  }
-  function copy() {
-    if (!value) return
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
-    })
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <TextField
-        type={inputType}
+  if (v.type === 'password' || v.generate) {
+    return (
+      <PasswordField
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         placeholder={v.default}
         disabled={disabled}
-        className="flex-1"
+        generate={v.generate}
       />
-      {isSecret && value ? (
-        <button
-          type="button"
-          onClick={() => setRevealed((x) => !x)}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)] hover:border-[var(--color-border-strong)]"
-          title={revealed ? '隐藏' : '显示'}
-        >
-          {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-        </button>
-      ) : null}
-      {value ? (
-        <button
-          type="button"
-          onClick={copy}
-          className="h-8 px-2 inline-flex items-center gap-1 text-[11px] rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)] hover:border-[var(--color-border-strong)]"
-          title="复制"
-        >
-          <Copy size={11} />{copied ? '已复制' : '复制'}
-        </button>
-      ) : null}
-      {v.generate ? (
-        <button
-          type="button"
-          onClick={gen}
-          disabled={disabled}
-          className="h-8 px-2 inline-flex items-center gap-1 text-[11px] rounded-md border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
-          title={`随机生成 ${labelFor(v.generate)}`}
-        >
-          <Sparkles size={11} /> 生成
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-function labelFor(kind: NonNullable<RecipeVar['generate']>): string {
-  switch (kind) {
-    case 'base64-16':   return '16 字节 base64'
-    case 'base64-32':   return '32 字节 base64'
-    case 'hex-8':       return '8 字节 hex'
-    case 'hex-16':      return '16 字节 hex'
-    case 'password-16': return '16 位随机密码'
-    case 'password-32': return '32 位随机密码'
-    case 'uuid':        return 'UUID'
+    )
   }
+  return (
+    <TextField
+      type={v.type === 'number' ? 'number' : 'text'}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={v.default}
+      disabled={disabled}
+    />
+  )
 }
 
 function safeHost(url: string): string {

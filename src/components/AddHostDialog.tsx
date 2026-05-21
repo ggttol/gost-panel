@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/Dialog'
 import { Button } from '@/components/ui/Button'
 import { FormSection, FieldRow, TextField } from '@/components/ui/Form'
+import { PasswordField } from '@/components/ui/PasswordField'
 import {
   newProfileId,
   setActiveProfile,
@@ -144,7 +145,7 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
             <TextField value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin" />
           </FieldRow>
           <FieldRow label="密码" hint="明文存浏览器 localStorage；公用电脑慎用">
-            <TextField type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+            <PasswordField value={password} onChange={setPassword} placeholder="••••••••" />
           </FieldRow>
         </FormSection>
 
@@ -159,12 +160,12 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
               placeholder="http://host:19090"
             />
           </FieldRow>
-          <FieldRow label="Token" hint="边车启动时设的 TOKEN 环境变量；未启用 token 留空">
-            <TextField
-              type="password"
+          <FieldRow label="Token" hint="边车启动时设的 TOKEN 环境变量；点「生成」一键 32 字符 hex，然后把同样的值写进边车的 systemd unit Environment=TOKEN=...，再 daemon-reload + restart">
+            <PasswordField
               value={logfeedToken}
-              onChange={(e) => setLogfeedToken(e.target.value)}
+              onChange={setLogfeedToken}
               placeholder="32 位 hex"
+              generate="hex-16"
             />
           </FieldRow>
         </FormSection>

@@ -1,5 +1,6 @@
 import type { ResourceFormProps } from '@/components/forms/types'
 import { FormSection, FieldRow, TextField, RowList } from '@/components/ui/Form'
+import { PasswordField } from '@/components/ui/PasswordField'
 
 type AuthEntry = { username?: string; password?: string }
 
@@ -38,17 +39,16 @@ export function AutherForm({ value, onChange, disabled }: ResourceFormProps) {
             <FieldRow
               label="密码"
               inline
-              hint="登录密码（明文存储；建议给 gost 单独建账号，别复用主密码）"
+              hint="登录密码（明文存储；建议给 gost 单独建账号，别复用主密码；点「生成」一键来一个 16 位强随机）"
             >
-              <TextField
+              <PasswordField
                 value={item.password ?? ''}
                 disabled={disabled}
                 placeholder="pass"
-                type="text"
-                autoComplete="off"
-                onChange={(e) => {
+                generate="password-16"
+                onChange={(v) => {
                   const next = auths.slice()
-                  next[i] = { ...item, password: e.target.value }
+                  next[i] = { ...item, password: v }
                   update(next)
                 }}
               />

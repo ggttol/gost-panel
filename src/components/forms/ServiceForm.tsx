@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/Form'
 import { TypeHint } from '@/components/ui/TypeHint'
 import { ResourceRefField } from '@/components/ui/ResourceRefField'
+import { PasswordField } from '@/components/ui/PasswordField'
 import { HANDLER_TYPES, LISTENER_TYPES } from '@/lib/gostTypes'
 import { HANDLER_TYPE_HELP, LISTENER_TYPE_HELP } from '@/lib/help'
 
@@ -184,14 +185,14 @@ export function ServiceForm({ value, onChange, disabled }: ResourceFormProps) {
         </FieldRow>
         <FieldRow
           label="认证密码"
-          hint="留空表示不要求认证；与 auther 引用二选一即可"
+          hint="留空表示不要求认证；点「生成」一键 16 位强随机"
         >
-          <TextField
-            type="password"
+          <PasswordField
             value={asString(handlerAuth.password)}
             disabled={disabled}
             placeholder="pass"
-            onChange={(e) => patchHandlerAuth({ password: e.target.value })}
+            generate="password-16"
+            onChange={(v) => patchHandlerAuth({ password: v })}
           />
         </FieldRow>
       </FormSection>
@@ -220,14 +221,14 @@ export function ServiceForm({ value, onChange, disabled }: ResourceFormProps) {
         </FieldRow>
         <FieldRow
           label="认证密码"
-          hint="留空表示不要求认证；与 auther 引用二选一即可"
+          hint="留空表示不要求认证；点「生成」一键 16 位强随机"
         >
-          <TextField
-            type="password"
+          <PasswordField
             value={asString(listenerAuth.password)}
             disabled={disabled}
             placeholder="pass"
-            onChange={(e) => patchListenerAuth({ password: e.target.value })}
+            generate="password-16"
+            onChange={(v) => patchListenerAuth({ password: v })}
           />
         </FieldRow>
         {showTls ? (
