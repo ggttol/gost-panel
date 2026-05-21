@@ -8,6 +8,7 @@ import { Card, CardTitle, CardValue } from '@/components/ui/Card'
 import { EditorJson } from '@/components/ui/EditorJson'
 import { ResourceEditorDialog, type EditorMode } from '@/components/ResourceEditorDialog'
 import { DeleteConfirmDialog } from '@/components/DeleteConfirmDialog'
+import { ClientAccessCard } from '@/components/ClientAccessCard'
 import { STATE_LABEL_ZH, T } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -95,6 +96,8 @@ export function ServiceDetailPage() {
           </div>
         </Card>
       </section>
+
+      <ClientAccessCard service={item} />
 
       <section className="mb-8">
         <h2 className="eyebrow mb-3">{T.service.events}</h2>
