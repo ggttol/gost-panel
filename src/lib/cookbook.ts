@@ -1,11 +1,13 @@
 import type { ResourceKey } from './resources'
 
 export type RecipeCategory =
-  | 'proxy'        // 本机/服务端代理
-  | 'forward'      // 端口转发
-  | 'tunnel'       // 内网穿透 / 隧道
-  | 'transparent'  // 透明代理
-  | 'special'      // DNS / 隐蔽 / SS 等
+  | 'proxy'         // 本机/服务端代理
+  | 'forward'       // 端口转发
+  | 'tunnel'        // 内网穿透 / 隧道
+  | 'transparent'   // 透明代理
+  | 'security'      // 鉴权 / 限流 / IP 准入
+  | 'observability' // 日志 / 事件回调
+  | 'special'       // DNS / SS / 隐蔽传输等
 
 export type RecipeVar = {
   key: string
@@ -36,11 +38,13 @@ export type Recipe = {
 }
 
 const CATEGORY_LABEL: Record<RecipeCategory, string> = {
-  proxy:       '代理',
-  forward:     '端口转发',
-  tunnel:      '内网穿透',
-  transparent: '透明代理',
-  special:     '特殊用法',
+  proxy:         '代理',
+  forward:       '端口转发',
+  tunnel:        '内网穿透',
+  transparent:   '透明代理',
+  security:      '鉴权与限流',
+  observability: '日志与观测',
+  special:       '特殊用法',
 }
 
 export const RECIPE_CATEGORIES: Array<{ key: RecipeCategory; label: string }> =
@@ -497,6 +501,482 @@ export const RECIPES: Recipe[] = [
     client: [
       'curl --socks5-hostname {{u1}}:{{p1}}@{{host}}:1083 https://ifconfig.me',
     ],
+  },
+
+  // ───────── 服务暴露 / 反向代理 ─────────
+  {
+    key: 'https-reverse-proxy',
+    category: 'forward',
+    label: 'HTTPS 反向代理（gost 当 nginx）',
+    scene: '把内网某 HTTP 服务用真实证书加 TLS 后暴露到 443。等价于 nginx 做 TLS termination。',
+    describe: '需要真实域名 + Let’s Encrypt 证书。gost 在 443 监听 TLS，内部转发到 backend 明文 HTTP。注意：handler 是 http 不是 tcp，这样能保留 Host 头。',
+    vars: [
+      { key: 'cert_file', label: 'fullchain.pem 路径', default: '/etc/letsencrypt/live/example.com/fullchain.pem' },
+      { key: 'key_file',  label: 'privkey.pem 路径',  default: '/etc/letsencrypt/live/example.com/privkey.pem' },
+      { key: 'backend',   label: '内网后端 host:port', default: '192.168.1.10:8080' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'https-reverse-443',
+        body: {
+          addr: ':443',
+          handler: { type: 'http' },
+          listener: {
+            type: 'tls',
+            tls: { certFile: '{{cert_file}}', keyFile: '{{key_file}}' },
+          },
+          forwarder: { nodes: [{ name: 'backend', addr: '{{backend}}' }] },
+        },
+      },
+    ],
+    client: ['curl https://{{host}}/', '# 用真实域名访问；证书要 SAN 含该域名'],
+  },
+
+  {
+    key: 'db-remote-access',
+    category: 'forward',
+    label: '数据库远程访问 + IP 白名单',
+    scene: '把 PostgreSQL / MySQL / Redis 暴露给办公室 IP，其他全部拒。',
+    describe: '建一个 admission 白名单（你的固定出口 IP），TCP forward 转给数据库端口。比直接开放给公网安全得多。',
+    vars: [
+      { key: 'db_target',  label: '内网数据库 host:port', default: '192.168.1.20:5432', hint: 'PG=5432, MySQL=3306, Redis=6379' },
+      { key: 'allow_cidr', label: '允许的客户端 IP/CIDR', default: '203.0.113.10/32', hint: '多条用 CIDR 形式' },
+      { key: 'expose',     label: '本机暴露端口',          default: '15432', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'admissions',
+        name: 'admit-db-clients',
+        body: { whitelist: true, matchers: ['{{allow_cidr}}'] },
+      },
+      {
+        kind: 'services',
+        name: 'tcp-db-{{expose}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'tcp' },
+          listener: { type: 'tcp' },
+          forwarder: { nodes: [{ name: 'db', addr: '{{db_target}}' }] },
+          admission: 'admit-db-clients',
+        },
+      },
+    ],
+    client: ['psql -h {{host}} -p {{expose}} -U user dbname'],
+  },
+
+  {
+    key: 'tcp-loadbalance',
+    category: 'forward',
+    label: '多后端 TCP 负载均衡',
+    scene: '一个入口端口转给后面 N 个等价后端，按轮询 / 随机分发，挂掉自动剔除。',
+    describe: '把多个 forwarder.nodes 放一起 + selector 策略。比单台后端直接转发增加了高可用。',
+    vars: [
+      { key: 'backend1', label: '后端 1', default: '192.168.1.11:8080' },
+      { key: 'backend2', label: '后端 2', default: '192.168.1.12:8080' },
+      { key: 'backend3', label: '后端 3', default: '192.168.1.13:8080' },
+      { key: 'expose',   label: '入口端口', default: '8080', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'lb-tcp-{{expose}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'tcp' },
+          listener: { type: 'tcp' },
+          forwarder: {
+            selector: { strategy: 'round', maxFails: 2, failTimeout: '30s' },
+            nodes: [
+              { name: 'b1', addr: '{{backend1}}' },
+              { name: 'b2', addr: '{{backend2}}' },
+              { name: 'b3', addr: '{{backend3}}' },
+            ],
+          },
+        },
+      },
+    ],
+    client: ['curl http://{{host}}:{{expose}}/   # 每次落到不同后端'],
+  },
+
+  {
+    key: 'mail-forward',
+    category: 'forward',
+    label: '邮件服务端口转发（SMTP/IMAP）',
+    scene: '内网邮件服务器（如 Mailcow / Mailu）通过这台公网机收发邮件。',
+    describe: '一次开 SMTP 25、IMAPS 993、Submission 587 三个端口转发到内网邮件服务。如果邮件服务自己处理 TLS，gost 透传裸 TCP 即可。',
+    vars: [
+      { key: 'mail_host', label: '内网邮件主机 IP', default: '192.168.1.30' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'mail-smtp-25',
+        body: { addr: ':25', handler: { type: 'tcp' }, listener: { type: 'tcp' }, forwarder: { nodes: [{ name: 'smtp', addr: '{{mail_host}}:25' }] } },
+      },
+      {
+        kind: 'services',
+        name: 'mail-submission-587',
+        body: { addr: ':587', handler: { type: 'tcp' }, listener: { type: 'tcp' }, forwarder: { nodes: [{ name: 'submission', addr: '{{mail_host}}:587' }] } },
+      },
+      {
+        kind: 'services',
+        name: 'mail-imaps-993',
+        body: { addr: ':993', handler: { type: 'tcp' }, listener: { type: 'tcp' }, forwarder: { nodes: [{ name: 'imaps', addr: '{{mail_host}}:993' }] } },
+      },
+    ],
+    client: [
+      '# IMAP 客户端连：',
+      'imaps://{{host}}:993',
+      '# SMTP 提交连：',
+      'smtp://{{host}}:587 （STARTTLS）',
+    ],
+  },
+
+  // ───────── 内网穿透 ─────────
+  {
+    key: 'rhttp-tunnel',
+    category: 'tunnel',
+    label: '反向 HTTP 隧道（暴露内网网站到公网）',
+    scene: '家里跑了一个 Web 应用没公网 IP，想给外面人访问。家里 gost 主动连公网 gost 把流量打通。',
+    describe: '公网侧建一个 rtcp service 接收回连 + 暴露 HTTP；家里再用 gost CLI 起 -L rtcp 主动连过来。比 frp 简单，但功能也朴素。',
+    vars: [
+      { key: 'inner_web',  label: '家里 Web host:port',    default: '192.168.1.50:80' },
+      { key: 'tunnel_id',  label: 'tunnel 标识',          default: 'home-web' },
+      { key: 'expose',     label: '公网暴露端口',          default: '8080', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'rhttp-{{tunnel_id}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'rtcp', metadata: { tunnelID: '{{tunnel_id}}' } },
+          listener: { type: 'rtcp' },
+          forwarder: { nodes: [{ name: 'inner', addr: '{{inner_web}}' }] },
+        },
+      },
+    ],
+    client: [
+      '# 家里那台机器跑 gost CLI：',
+      'gost -L "rtcp://:0/{{inner_web}}?tunnelID={{tunnel_id}}" \\',
+      '     -F "tcp://{{host}}:{{expose}}"',
+      '',
+      '# 然后外面：',
+      'curl http://{{host}}:{{expose}}/',
+    ],
+  },
+
+  // ───────── 透明代理 ─────────
+  {
+    key: 'tun-vpn',
+    category: 'transparent',
+    label: 'TUN 三层 VPN 透明代理',
+    scene: '整机所有出站流量（含 UDP / QUIC / 游戏）都走代理，不挑应用。',
+    describe: 'gost 起一个 tun 设备接管系统出口，配合 chain 把流量打到上游。客户端透明，类似 sing-box / clash 的 TUN 模式。需要 root + 路由配置。',
+    vars: [
+      { key: 'tun_name', label: 'TUN 接口名', default: 'gost-tun0' },
+      { key: 'tun_addr', label: 'TUN IP/掩码', default: '198.18.0.1/16', hint: '随便选个不冲突的私网段' },
+      { key: 'mtu',      label: 'MTU',         default: '1420', type: 'number' },
+      { key: 'upstream', label: '上游代理',     default: 'proxy.example.com:1080' },
+    ],
+    resources: [
+      {
+        kind: 'hops',
+        name: 'hop-tun-upstream',
+        body: {
+          nodes: [{
+            name: 'upstream',
+            addr: '{{upstream}}',
+            connector: { type: 'socks5' },
+            dialer: { type: 'tcp' },
+          }],
+        },
+      },
+      {
+        kind: 'chains',
+        name: 'chain-tun',
+        body: { hops: [{ name: 'hop-tun-upstream' }] },
+      },
+      {
+        kind: 'services',
+        name: 'tun-vpn',
+        body: {
+          addr: '{{tun_addr}}',
+          handler: { type: 'tun', chain: 'chain-tun' },
+          listener: {
+            type: 'tun',
+            metadata: { name: '{{tun_name}}', mtu: '{{mtu}}' },
+          },
+        },
+      },
+    ],
+    client: [
+      '# 启动后系统会出现一个 {{tun_name}} 接口；加路由让流量进来：',
+      'sudo ip route add 0.0.0.0/1 dev {{tun_name}}',
+      'sudo ip route add 128.0.0.0/1 dev {{tun_name}}',
+      '# 撤销：sudo ip route del 0.0.0.0/1; sudo ip route del 128.0.0.0/1',
+    ],
+  },
+
+  // ───────── 特殊用法 ─────────
+  {
+    key: 'ss-2022',
+    category: 'special',
+    label: 'Shadowsocks 2022（更抗检测）',
+    scene: '比传统 ss aes-gcm 安全很多的新版协议（2022-blake3-aes-256-gcm）。需要 gost ≥ 3.0 + 客户端也支持 SS-2022。',
+    describe: 'SS-2022 加了 EIH 鉴权和重放保护，主动探测难度大幅提升。密码必须 base64 强随机，长度由 method 决定（aes-128=16B、aes-256=32B）。',
+    vars: [
+      { key: 'port', label: '端口', default: '8388', type: 'number' },
+      { key: 'method', label: '加密方式', default: '2022-blake3-aes-256-gcm', hint: '推荐 2022-blake3-aes-256-gcm' },
+      { key: 'password', label: 'base64 密码', default: '', type: 'password', hint: '用 `openssl rand -base64 32` 生成' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'ss2022-{{port}}',
+        body: {
+          addr: ':{{port}}',
+          handler: { type: 'ss', metadata: { method: '{{method}}', password: '{{password}}' } },
+          listener: { type: 'tcp' },
+        },
+      },
+    ],
+    client: [
+      '# 兼容客户端：Shadowrocket / sing-box / Xray / shadowsocks-rust',
+      'ss://{{method}}:{{password}}@{{host}}:{{port}}',
+      '# 注意把 method:password 整体 base64 编码后才是导入链接',
+    ],
+  },
+
+  {
+    key: 'private-dns-hosts',
+    category: 'special',
+    label: '私有 DNS + Hosts 组合（内网域名 + DoH 兜底）',
+    scene: '内网用自己的域名（nas.home / svc.local），外网域名走加密 DoH。给 chain / service 引用同一份解析配置。',
+    describe: 'hosts 命中的私有域名直接出 IP；没命中的走 resolver 列出的 DoH 上游。两个资源都建出来后，去 service / chain 编辑里 hosts / resolver 字段一并选上。',
+    vars: [
+      { key: 'nas_ip',  label: '内网 NAS IP',  default: '192.168.1.50' },
+      { key: 'router_ip', label: '内网路由 IP', default: '192.168.1.1' },
+      { key: 'doh_url', label: 'DoH 上游',     default: 'https://1.0.0.1/dns-query' },
+    ],
+    resources: [
+      {
+        kind: 'hosts',
+        name: 'hosts-home',
+        body: {
+          mappings: [
+            { ip: '{{nas_ip}}',    hostname: 'nas.home' },
+            { ip: '{{router_ip}}', hostname: 'router.home', aliases: ['gw.home'] },
+          ],
+        },
+      },
+      {
+        kind: 'resolvers',
+        name: 'resolver-doh-fallback',
+        body: { nameservers: [{ addr: '{{doh_url}}', prefer: 'ipv4' }] },
+      },
+    ],
+    client: [
+      '# 在任意 service 编辑里把 hosts 选 hosts-home，resolver 选 resolver-doh-fallback',
+      '# 然后 curl --socks5 {{host}}:1080 http://nas.home/ 就会直接命中 hosts',
+    ],
+  },
+
+  // ───────── 鉴权与限流 ─────────
+  {
+    key: 'mtls-listener',
+    category: 'security',
+    label: 'mTLS 强制客户端证书',
+    scene: '只让持有你颁发的客户端证书的人能连进来，主动探测直接 reset。比账号密码强很多。',
+    describe: 'listener.type=mtls 三个文件全要：certFile（服务端证书）/ keyFile（私钥）/ caFile（签客户端证书的 CA）。客户端拿不到 CA 签过的 cert 就握不上手。',
+    vars: [
+      { key: 'cert_file', label: '服务端证书', default: '/etc/gost/server.pem' },
+      { key: 'key_file',  label: '服务端私钥', default: '/etc/gost/server.key' },
+      { key: 'ca_file',   label: 'CA 证书',    default: '/etc/gost/clients-ca.pem' },
+      { key: 'port',      label: '端口',       default: '8443', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'mtls-socks5-{{port}}',
+        body: {
+          addr: ':{{port}}',
+          handler: { type: 'socks5' },
+          listener: {
+            type: 'mtls',
+            tls: { certFile: '{{cert_file}}', keyFile: '{{key_file}}', caFile: '{{ca_file}}' },
+          },
+        },
+      },
+    ],
+    client: [
+      '# 客户端拿 CA 签的 cert 后用 gost CLI：',
+      'gost -L socks5://:1080 -F "socks5+mtls://{{host}}:{{port}}?cert=client.pem&key=client.key&ca=ca.pem"',
+    ],
+  },
+
+  {
+    key: 'service-rate-limit',
+    category: 'security',
+    label: '服务带宽限速',
+    scene: '某条代理被同事白嫖把家里宽带挤爆——给该 service 套一个上下行带宽上限。',
+    describe: 'limits 字符串格式：`$ 入带宽 出带宽` 表示整个服务的总速率；`$$ 入 出` 是每个客户端的速率。单位 B/KB/MB/GB。',
+    vars: [
+      { key: 'rate_in',  label: '入向上限', default: '10MB', hint: '例：10MB = 10 MB/s' },
+      { key: 'rate_out', label: '出向上限', default: '10MB' },
+      { key: 'target_service', label: '应用到哪个服务', default: 'socks5-1080', hint: '该服务必须已存在；本配方只建 limiter，请去 service 编辑里把 limiter 字段填上' },
+    ],
+    resources: [
+      {
+        kind: 'limiters',
+        name: 'limit-{{rate_in}}-{{rate_out}}',
+        body: {
+          limits: [ '$ {{rate_in}} {{rate_out}}' ],
+        },
+      },
+    ],
+    client: [
+      '# 应用后：编辑 {{target_service}}，把 limiter 字段设成新建的 limiter 名',
+      '# 验证：用 iperf3 / curl 大文件看带宽是否被限到 {{rate_in}}',
+    ],
+  },
+
+  {
+    key: 'conn-limit-per-ip',
+    category: 'security',
+    label: '单 IP 并发连接数限制',
+    scene: '防止某个客户端开几千连接打爆服务（爬虫、滥用、扫描器）。',
+    describe: 'climiter = connection limiter。`$$ N` 限制每个客户端 IP 最多 N 个并发连接；超过就拒绝新连接。建完后到 service 编辑里把 climiter 字段填上。',
+    vars: [
+      { key: 'per_ip_max',    label: '每 IP 最大连接', default: '50', type: 'number' },
+      { key: 'service_max',   label: '服务总连接上限', default: '5000', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'climiters',
+        name: 'climit-{{per_ip_max}}-per-ip',
+        body: {
+          limits: [
+            '$ {{service_max}}',
+            '$$ {{per_ip_max}}',
+          ],
+        },
+      },
+    ],
+    client: [
+      '# 应用后：去 service 编辑里把 climiter 字段填成新建的 climiter 名',
+    ],
+  },
+
+  // ───────── 日志与观测 ─────────
+  {
+    key: 'access-log-file',
+    category: 'observability',
+    label: '访问日志落盘（recorder）',
+    scene: '想审计谁在用代理、访问了什么——把每条连接信息写到本地文件。',
+    describe: 'recorder.file.path 是落盘路径；service.recorders 引用它。日志格式默认 JSON。注意 gost 进程要有写权限。',
+    vars: [
+      { key: 'log_path', label: '日志路径', default: '/var/log/gost/access.log' },
+      { key: 'target_service', label: '应用到哪个服务', default: 'socks5-1080', hint: '本配方只建 recorder；请去对应 service 编辑里把 recorders 加上' },
+    ],
+    resources: [
+      {
+        kind: 'recorders',
+        name: 'recorder-access',
+        body: {
+          file: { path: '{{log_path}}' },
+        },
+      },
+    ],
+    client: [
+      '# 应用后到 {{target_service}} 编辑里 JSON 标签下加：',
+      '"recorders": [{ "name": "recorder-access", "record": "recorder.service.handler" }]',
+      '# 然后 tail -f {{log_path}} 看实时',
+    ],
+  },
+
+  {
+    key: 'event-webhook',
+    category: 'observability',
+    label: '实时事件 webhook 推送（observer）',
+    scene: '想接入外部告警 / 监控系统——每当 service 有连接进来 / 出错 / 断开就 POST 一条 JSON 到你的 HTTP 端点。',
+    describe: 'observer 用 plugin: http，gost 会把事件以 JSON POST 到指定 URL。配合 service.observer 引用生效。可以用来做 Bark / Telegram bot / 自家监控的入口。',
+    vars: [
+      { key: 'webhook_url', label: 'webhook URL', default: 'http://127.0.0.1:8000/gost-events' },
+    ],
+    resources: [
+      {
+        kind: 'observers',
+        name: 'observer-webhook',
+        body: {
+          plugin: { type: 'http', addr: '{{webhook_url}}' },
+        },
+      },
+    ],
+    client: [
+      '# 应用后到 service 编辑里把 observer 字段填 observer-webhook',
+      '# 你的 webhook 端会收到形如：',
+      '{ "kind": "stats", "service": "socks5-1080", "client": "1.2.3.4:5678", ... }',
+    ],
+  },
+
+  // ───────── 端口转发：游戏 / VPN ─────────
+  {
+    key: 'minecraft-server',
+    category: 'forward',
+    label: 'Minecraft 服务器转发 + 白名单',
+    scene: '家里跑 MC 服务器，开给固定几个朋友 IP 进来，挡爬虫/被刷。',
+    describe: 'MC 默认是 TCP 25565。配合 admission 白名单只让指定 IP 段进。如果朋友家是动态 IP，请改成域名 + DDNS 解析。',
+    vars: [
+      { key: 'mc_inner', label: '内网 MC host:port', default: '192.168.1.50:25565' },
+      { key: 'allow1',   label: '朋友 1 IP/CIDR',    default: '203.0.113.10/32' },
+      { key: 'allow2',   label: '朋友 2 IP/CIDR',    default: '203.0.113.20/32' },
+    ],
+    resources: [
+      {
+        kind: 'admissions',
+        name: 'admit-mc-friends',
+        body: { whitelist: true, matchers: ['{{allow1}}', '{{allow2}}'] },
+      },
+      {
+        kind: 'services',
+        name: 'tcp-mc-25565',
+        body: {
+          addr: ':25565',
+          handler: { type: 'tcp' },
+          listener: { type: 'tcp' },
+          forwarder: { nodes: [{ name: 'mc', addr: '{{mc_inner}}' }] },
+          admission: 'admit-mc-friends',
+        },
+      },
+    ],
+    client: ['# 朋友 MC 客户端连 {{host}}:25565'],
+  },
+
+  {
+    key: 'wireguard-udp',
+    category: 'forward',
+    label: 'WireGuard UDP 端口转发',
+    scene: '家里 WireGuard 在 NAT 后面，让 vps 把 UDP 51820 流量打回内网那台。',
+    describe: 'wg 是 UDP 协议。注意 wg 内部加密自管，gost 这里只做无脑 UDP 转发，几乎无开销。如果两端都在 NAT 后，请改用 rudp 反向隧道。',
+    vars: [
+      { key: 'wg_inner', label: '内网 WG host:port', default: '192.168.1.40:51820' },
+      { key: 'expose',   label: 'VPS 暴露端口',     default: '51820', type: 'number' },
+    ],
+    resources: [
+      {
+        kind: 'services',
+        name: 'udp-wg-{{expose}}',
+        body: {
+          addr: ':{{expose}}',
+          handler: { type: 'udp' },
+          listener: { type: 'udp' },
+          forwarder: { nodes: [{ name: 'wg', addr: '{{wg_inner}}' }] },
+        },
+      },
+    ],
+    client: ['# wg 客户端 Endpoint 改成 {{host}}:{{expose}}'],
   },
 ]
 
