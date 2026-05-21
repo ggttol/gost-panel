@@ -72,6 +72,8 @@ export type Recipe = {
   vars?: RecipeVar[]
   /** 客户端怎么接 —— 几行就够，可以含 {{var}} 和 {{host}}（host 来自当前激活的 profile） */
   client?: string[]
+  /** 部署前必须做的事——证书、域名、CDN、内核参数等。每段间用空字符串分隔形成自然段。 */
+  setup?: string[]
 }
 
 const CATEGORY_LABEL: Record<RecipeCategory, string> = {
@@ -1412,6 +1414,11 @@ export const RECIPES: Recipe[] = [
       '# 该 service 收到客户端请求后，DNS 也会被打到 {{chain_name}} 出去再做 DoH 解析',
     ],
   },
+
+  // SS-2022 + WSS + Cloudflare CDN 配方已移除。原因：CF 免费版 100GB/月软限 +
+  // TOS 与翻墙用途冲突 + CN 访问 CF 默认走美西延迟高 + 10 步配置对普通用户太重
+  // —— 性价比不如直接买机场。需要"套 CDN"的高级用户可手工组合 socks5-wss 配方
+  // 加 ss handler 实现等价效果。
 ]
 
 /* ------------------------------------------------------------------ */

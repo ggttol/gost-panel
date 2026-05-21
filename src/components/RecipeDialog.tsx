@@ -63,6 +63,10 @@ function Body({ recipe, onDone }: { recipe: Recipe; onDone: () => void }) {
     () => (recipe.client ?? []).map((s) => substitute(s, vars)),
     [recipe, vars],
   )
+  const setupLines = useMemo(
+    () => (recipe.setup ?? []).map((s) => substitute(s, vars)),
+    [recipe, vars],
+  )
 
   async function apply() {
     setRunning(true)
@@ -100,12 +104,24 @@ function Body({ recipe, onDone }: { recipe: Recipe; onDone: () => void }) {
         {recipe.describe}
       </p>
 
-      <Tabs defaultValue="form">
+      <Tabs defaultValue={setupLines.length ? 'setup' : 'form'}>
         <TabsList>
+          {setupLines.length ? <TabsTrigger value="setup">部署前置</TabsTrigger> : null}
           <TabsTrigger value="form">参数与预览</TabsTrigger>
           <TabsTrigger value="json">完整 JSON</TabsTrigger>
           {clientLines.length ? <TabsTrigger value="client">客户端怎么接</TabsTrigger> : null}
         </TabsList>
+
+        {setupLines.length ? (
+          <TabsContent value="setup" className="mt-3">
+            <pre className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-[12px] font-mono p-3 leading-relaxed overflow-x-auto whitespace-pre-wrap">
+              {setupLines.join('\n')}
+            </pre>
+            <p className="text-[11px] text-[var(--color-muted)] mt-2 leading-relaxed">
+              先把这里所有步骤跑完再回「参数与预览」点「应用此配方」。否则 gost 启动后会因为证书 / DNS / 端口未就绪报错。
+            </p>
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="form" className="mt-3 flex flex-col gap-3">
           {recipe.vars && recipe.vars.length > 0 ? (
