@@ -9,6 +9,7 @@ import { ConfigPage } from '@/pages/ConfigPage'
 import { MetricsPage } from '@/pages/MetricsPage'
 import { LogsPage } from '@/pages/LogsPage'
 import { WelcomePage } from '@/pages/WelcomePage'
+import { CookbookPage } from '@/pages/CookbookPage'
 import { bootstrapFromEnv, useProfilesState } from '@/lib/profiles'
 
 const qc = new QueryClient({
@@ -53,6 +54,7 @@ function Shell() {
         <Route path="/config" element={<ConfigPage />} />
         <Route path="/metrics" element={<MetricsPage />} />
         <Route path="/logs" element={<LogsPage />} />
+        <Route path="/cookbook" element={<CookbookPage />} />
         <Route path="/welcome" element={<Navigate to="/r/services" replace />} />
         <Route path="*" element={<Navigate to="/r/services" replace />} />
       </Route>

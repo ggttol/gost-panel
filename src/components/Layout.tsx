@@ -8,6 +8,7 @@ import {
   Disc,
   DoorOpen,
   Eye,
+  ChefHat,
   FileJson,
   Gauge,
   ScrollText,
@@ -76,9 +77,10 @@ function Sidebar() {
 
       <nav className="px-3 pb-6 overflow-y-auto flex-1">
         <NavSection seq="00" title={T.nav.global}>
-          <NavItem to="/config"  icon={FileJson}   label={T.nav.rawConfig} />
-          <NavItem to="/metrics" icon={BarChart3}  label={T.metrics.title} />
-          <NavItem to="/logs"    icon={ScrollText} label="日志" />
+          <NavItem to="/cookbook" icon={ChefHat}    label="场景菜谱" />
+          <NavItem to="/config"   icon={FileJson}   label={T.nav.rawConfig} />
+          <NavItem to="/metrics"  icon={BarChart3}  label={T.metrics.title} />
+          <NavItem to="/logs"     icon={ScrollText} label="日志" />
         </NavSection>
 
         {groupOrder.map((g, i) => (
