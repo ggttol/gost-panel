@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { useFullConfig, useReloadConfig } from '@/lib/queries'
@@ -124,7 +124,7 @@ export function ConfigPage() {
       )}
 
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <ImportDialog currentConfig={unwrapped} />
+        <ImportDialog currentConfig={unwrapped} onClose={() => setImportOpen(false)} />
       </Dialog>
     </div>
   )
@@ -137,6 +137,9 @@ type DiffSummary = {
   add: string[]
   update: string[]
   remove: string[]
+  /** Number of items in the incoming list that have no `name` — silently
+   *  unusable, we surface them so the user can fix the YAML. */
+  nameless: number
 }
 
 function computeDiff(
@@ -149,6 +152,7 @@ function computeDiff(
     const inc = Array.isArray(incoming[def.key]) ? (incoming[def.key] as GostItem[]) : []
     const curNames = new Set(cur.map((i) => i.name).filter(Boolean) as string[])
     const incNames = new Set(inc.map((i) => i.name).filter(Boolean) as string[])
+    const nameless = inc.filter((i) => !i.name).length
     const add: string[] = []
     const update: string[] = []
     for (const n of incNames) {
@@ -159,8 +163,8 @@ function computeDiff(
     for (const n of curNames) {
       if (!incNames.has(n)) remove.push(n)
     }
-    if (add.length || update.length || remove.length) {
-      out.push({ key: def.key, add, update, remove })
+    if (add.length || update.length || remove.length || nameless) {
+      out.push({ key: def.key, add, update, remove, nameless })
     }
   }
   return out
@@ -173,20 +177,39 @@ type ApplyStatus = {
   running: boolean
 }
 
-function ImportDialog({ currentConfig }: { currentConfig: Record<string, unknown> }) {
+function ImportDialog({
+  currentConfig,
+  onClose,
+}: {
+  currentConfig: Record<string, unknown>
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
   const [yamlText, setYamlText] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [parsed, setParsed] = useState<Record<string, unknown> | null>(null)
   const [deleteMissing, setDeleteMissing] = useState(false)
-  const [reloadAfter, setReloadAfter] = useState(true)
+  const [reloadAfter, setReloadAfter] = useState(false)
   const [applyStatus, setApplyStatus] = useState<ApplyStatus | null>(null)
 
   const diff = useMemo(
     () => (parsed ? computeDiff(currentConfig, parsed) : []),
     [parsed, currentConfig],
   )
+  const namelessTotal = useMemo(
+    () => diff.reduce((acc, d) => acc + d.nameless, 0),
+    [diff],
+  )
+
+  // Auto-close on full success, give the user 1.5s to see the green check.
+  useEffect(() => {
+    if (!applyStatus) return
+    if (applyStatus.running) return
+    if (applyStatus.failed.length > 0) return
+    const id = setTimeout(onClose, 1500)
+    return () => clearTimeout(id)
+  }, [applyStatus, onClose])
 
   function onFile(file: File) {
     const reader = new FileReader()
@@ -342,6 +365,11 @@ function ImportDialog({ currentConfig }: { currentConfig: Record<string, unknown
                           −{d.remove.length}
                         </span>
                       ) : null}
+                      {d.nameless > 0 ? (
+                        <span className="text-[var(--color-warn)]">
+                          ⚠ {d.nameless} 条无 name 已跳过
+                        </span>
+                      ) : null}
                       <span className="text-[var(--color-muted)] truncate min-w-0">
                         {[
                           d.add.length    ? `新增 ${d.add.join(', ')}`    : '',
@@ -355,6 +383,15 @@ function ImportDialog({ currentConfig }: { currentConfig: Record<string, unknown
               )}
             </div>
 
+            {namelessTotal > 0 ? (
+              <div className="border border-[color-mix(in_oklab,var(--color-warn)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warn)_12%,transparent)] text-[var(--color-warn)] rounded-md p-3 text-[12px] leading-snug">
+                <div className="eyebrow mb-1">无法导入：检测到 {namelessTotal} 条无 name 的资源</div>
+                <div>
+                  gost 用 name 作为资源主键。请在 YAML 里为每条资源补上 <code className="font-mono">name:</code> 字段后重新解析。
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-2">
               <Switch
                 checked={deleteMissing}
@@ -366,7 +403,7 @@ function ImportDialog({ currentConfig }: { currentConfig: Record<string, unknown
                 checked={reloadAfter}
                 onChange={setReloadAfter}
                 label="导入完成后调用 /config/reload"
-                hint="让 gost 重新加载配置"
+                hint="⚠️ 仅当 gost 配置文件已同步到磁盘时再勾选；否则 reload 会用磁盘旧版覆盖刚导入的资源。"
               />
             </div>
 
@@ -406,7 +443,8 @@ function ImportDialog({ currentConfig }: { currentConfig: Record<string, unknown
         </DialogClose>
         <Button
           onClick={applyImport}
-          disabled={!parsed || totalCount === 0 || (applyStatus?.running ?? false)}
+          disabled={!parsed || totalCount === 0 || namelessTotal > 0 || (applyStatus?.running ?? false)}
+          title={namelessTotal > 0 ? '请先修正 YAML 中无 name 的资源' : undefined}
         >
           {applyStatus?.running ? '写入中…' : `应用 (${totalCount})`}
         </Button>
