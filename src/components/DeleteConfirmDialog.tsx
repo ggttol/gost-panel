@@ -2,14 +2,13 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { gostError } from '@/lib/api'
 import {
-  Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog'
+import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import { Button } from '@/components/ui/Button'
 import { useDeleteResource } from '@/lib/queries'
 import { RESOURCE_LABEL_ZH, T } from '@/lib/i18n'

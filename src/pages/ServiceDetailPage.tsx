@@ -155,7 +155,8 @@ function listenerType(item: GostItem): string | undefined {
   return (item.listener as { type?: string } | undefined)?.type
 }
 function stripStatus(item: GostItem) {
-  const { status: _s, ...rest } = item
+  const rest: Record<string, unknown> = { ...item }
+  delete rest.status
   return rest
 }
 function stateTone(state: string): 'good' | 'bad' | 'warn' | 'neutral' {

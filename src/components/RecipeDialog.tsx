@@ -5,17 +5,17 @@ import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { PasswordField } from '@/components/ui/PasswordField'
 import {
-  Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog'
+import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import { Button } from '@/components/ui/Button'
 import { FormSection, FieldRow, TextField } from '@/components/ui/Form'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { Tabs, TabsContent } from '@/components/ui/Tabs.primitives'
 import { EditorJson } from '@/components/ui/EditorJson'
 import { api, gostError } from '@/lib/api'
 import { getActiveProfile } from '@/lib/profiles'

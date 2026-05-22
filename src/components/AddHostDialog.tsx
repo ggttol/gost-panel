@@ -4,14 +4,13 @@ import { toast } from 'sonner'
 import { gostError } from '@/lib/api'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import {
-  Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog'
+import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import { Button } from '@/components/ui/Button'
 import { FormSection, FieldRow, TextField } from '@/components/ui/Form'
 import { PasswordField } from '@/components/ui/PasswordField'

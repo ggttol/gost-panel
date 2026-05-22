@@ -7,16 +7,16 @@ import { RESOURCES, type ResourceKey } from '@/lib/resources'
 import { Button } from '@/components/ui/Button'
 import { EditorJson } from '@/components/ui/EditorJson'
 import { EditorYaml } from '@/components/ui/EditorYaml'
+import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import {
-  Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogClose,
 } from '@/components/ui/Dialog'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
+import { Tabs, TabsContent } from '@/components/ui/Tabs.primitives'
+import { TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Switch } from '@/components/ui/Form'
 import { T } from '@/lib/i18n'
 import { toast } from 'sonner'
