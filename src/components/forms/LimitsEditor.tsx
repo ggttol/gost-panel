@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { ResourceFormProps } from '@/components/forms/types'
 import { FormSection, FieldRow, TextField, SelectField, RowList } from '@/components/ui/Form'
 
@@ -55,9 +56,35 @@ export function LimitsEditor({
 }) {
   const hasTwo = kind === 'bandwidth'
   const rawLimits: string[] = Array.isArray(value.limits) ? (value.limits as string[]) : []
-  const rows: Row[] = rawLimits.map((s) => parseLimit(s, hasTwo)).filter(Boolean) as Row[]
+
+  // Local row state so mid-edit rows (e.g. scope=custom with empty prefix)
+  // don't get filtered out by the parent's serialization round-trip. We still
+  // sync from outside when value.limits actually differs (e.g. switching
+  // resources, applying a recipe).
+  const [rows, setRows] = useState<Row[]>(() =>
+    rawLimits.map((s) => parseLimit(s, hasTwo)).filter(Boolean) as Row[],
+  )
+
+  useEffect(() => {
+    const localSerialized = rows
+      .map((r) => serializeRow(r, hasTwo))
+      .filter((s) => s.length > 0)
+    // Only sync from outside when the external value actually differs from
+    // our local representation — prevents update loops because writeBack
+    // already filters to non-empty rows.
+    const same =
+      localSerialized.length === rawLimits.length &&
+      localSerialized.every((s, i) => s === rawLimits[i])
+    if (same) return
+    // Intentional: parent-driven sync (recipe applied, resource swapped). Local
+    // mid-edit state would otherwise lose rows that serialize to empty.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRows(rawLimits.map((s) => parseLimit(s, hasTwo)).filter(Boolean) as Row[])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.limits, hasTwo])
 
   const writeBack = (next: Row[]) => {
+    setRows(next)
     const limits = next.map((r) => serializeRow(r, hasTwo)).filter((s) => s.length > 0)
     onChange({ ...value, limits })
   }
