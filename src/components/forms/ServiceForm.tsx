@@ -173,8 +173,25 @@ export function ServiceForm({ value, onChange, disabled }: ResourceFormProps) {
           />
         </FieldRow>
         <FieldRow
+          label="认证器 auther"
+          hint="引用一个已建的 auther 资源做账号鉴权；适合多账号 / 动态管理"
+        >
+          <ResourceRefField
+            refKind="authers"
+            value={asString(handler.auther)}
+            disabled={disabled}
+            placeholder="— 不绑定 —"
+            onChange={(v) => {
+              const next: Dict = { ...handler }
+              if (v.length > 0) next.auther = v
+              else delete next.auther
+              onChange({ ...value, handler: next })
+            }}
+          />
+        </FieldRow>
+        <FieldRow
           label="认证用户名"
-          hint="留空表示不要求认证；与 auther 引用二选一即可"
+          hint="「内联账号」和上面的「认证器 auther」二选一即可。同时填以 auther 为准。"
         >
           <TextField
             value={asString(handlerAuth.username)}
@@ -185,7 +202,7 @@ export function ServiceForm({ value, onChange, disabled }: ResourceFormProps) {
         </FieldRow>
         <FieldRow
           label="认证密码"
-          hint="留空表示不要求认证；点「生成」一键 16 位强随机"
+          hint="「内联账号」和上面的「认证器 auther」二选一即可。同时填以 auther 为准。"
         >
           <PasswordField
             value={asString(handlerAuth.password)}

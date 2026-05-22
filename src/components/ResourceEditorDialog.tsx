@@ -77,7 +77,12 @@ function EditorBody({ mode, onDone }: { mode: EditorMode; onDone: () => void }) 
   const [jsonText, setJsonText] = useState(() => JSON.stringify(initialValue, null, 2))
   const lastSyncedTab = useRef(tab)
 
-  const existingNames = useExistingNames(mode.key).data ?? []
+  // Hold onto the Query data ref directly — it's referentially stable across
+  // renders, so we can safely depend on it in effects below. `existingNames`
+  // (the `?? []` fallback) intentionally creates a fresh empty array each
+  // render and must NOT be a dep on its own.
+  const existingNamesData = useExistingNames(mode.key).data
+  const existingNames = existingNamesData ?? []
 
   useEffect(() => {
     setName(
@@ -93,6 +98,27 @@ function EditorBody({ mode, onDone }: { mode: EditorMode; onDone: () => void }) 
     // doesn't churn while the user is typing. It's evaluated once per open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialName, initialValue, formAvailable])
+
+  // When existingNames finishes loading after the dialog opened (first effect
+  // ran with an empty list because data was still undefined), recompute the
+  // placeholder. We only touch the name if it still looks like an
+  // auto-suggestion — never clobber what the user typed.
+  useEffect(() => {
+    if (mode.kind !== 'create' || initialName) return
+    if (!existingNamesData) return
+    // Intentional: syncing the name placeholder when an async list arrives.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setName((current) => {
+      if (!current || isSuggestedName(current, mode.key, existingNamesData)) {
+        return suggestNextName(mode.key, existingNamesData)
+      }
+      return current
+    })
+    // mode.key / initialName are stable for the lifetime of this dialog open,
+    // so the only dep that should drive re-runs is existingNamesData (the
+    // referentially-stable Query result).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingNamesData])
 
   function applyScenario(s: ServiceScenario) {
     setValue(structuredClone(s.body))

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import type { ResourceFormProps } from '@/components/forms/types'
 import { FormSection, FieldRow, TextField, SelectField, NumberField } from '@/components/ui/Form'
 import { PasswordField } from '@/components/ui/PasswordField'
@@ -27,14 +27,26 @@ function detectKind(value: Dict): string {
   return 'file'
 }
 
+const KIND_KEYS = ['file', 'tcp', 'redis', 'http', 'plugin'] as const
+
 export function RecorderForm({ value, onChange, disabled }: ResourceFormProps) {
   const kind = useMemo(() => detectKind(value), [value])
 
+  // Stash previously-edited kind sub-objects so toggling tabs doesn't lose
+  // work. The active tab lives on `value` directly; inactive kinds sit in
+  // this ref until the user comes back to them.
+  const stash = useRef<Record<string, Dict>>({})
+
   const switchKind = (next: string) => {
-    // Strip all "kind" keys, keep top-level extras (name etc.), set new empty one
+    // Save the current kind into the stash, replace it with whatever we
+    // previously stashed (if any), and drop the others off the wire so gost
+    // only sees the active backend.
+    if (kind && kind !== next) {
+      stash.current[kind] = asDict(value[kind])
+    }
     const cleaned: Dict = { ...value }
-    for (const k of ['file', 'tcp', 'redis', 'http', 'plugin']) delete cleaned[k]
-    cleaned[next] = {}
+    for (const k of KIND_KEYS) delete cleaned[k]
+    cleaned[next] = stash.current[next] ?? {}
     onChange(cleaned)
   }
 
