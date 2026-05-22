@@ -15,6 +15,9 @@ dist-ssr
 # Claude Code worktrees & cache
 .claude/
 
+# 预下载的 gost 二进制 — 单文件 ~10MB，别进 git
+tools/dl/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

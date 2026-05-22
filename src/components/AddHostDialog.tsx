@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import axios, { isAxiosError } from 'axios'
 import { toast } from 'sonner'
 import { gostError } from '@/lib/api'
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, XCircle, Loader2, Sparkles } from 'lucide-react'
 import {
   DialogContent,
   DialogDescription,
@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/Dialog'
 import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import { Button } from '@/components/ui/Button'
-import { FormSection, FieldRow, TextField } from '@/components/ui/Form'
+import { FormSection, FieldRow, TextField, TextareaField } from '@/components/ui/Form'
 import { PasswordField } from '@/components/ui/PasswordField'
 import {
   newProfileId,
@@ -22,6 +22,41 @@ import {
 } from '@/lib/profiles'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
+import { InstallCommand } from '@/components/InstallCommand'
+
+type JoinFields = {
+  name?: string
+  apiBase?: string
+  username?: string
+  password?: string
+  logfeedUrl?: string
+  logfeedToken?: string
+  metricsUrl?: string
+}
+
+/** Parse the `gost-panel://add?...` link emitted by tools/install.sh. */
+function parseJoinUrl(raw: string): JoinFields | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol !== 'gost-panel:') return null
+    // gost-panel://add?... — the "add" lives in u.hostname or u.pathname depending on URL impl;
+    // we don't actually care which, since query is what matters.
+    const q = u.searchParams
+    const out: JoinFields = {}
+    const name = q.get('name'); if (name) out.name = name
+    const api = q.get('api'); if (api) out.apiBase = api
+    const user = q.get('user'); if (user) out.username = user
+    const pass = q.get('pass'); if (pass) out.password = pass
+    const lf = q.get('logfeed'); if (lf) out.logfeedUrl = lf
+    const tok = q.get('token'); if (tok) out.logfeedToken = tok
+    const m = q.get('metrics'); if (m) out.metricsUrl = m
+    return Object.keys(out).length > 0 ? out : null
+  } catch {
+    return null
+  }
+}
 
 export function AddHostDialog({
   open,
@@ -58,8 +93,28 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
   const [metricsUrl, setMetricsUrl] = useState(initial?.metricsUrl ?? '')
   const [test, setTest] = useState<TestState>({ kind: 'idle' })
   const [err, setErr] = useState<string | null>(null)
+  const [joinText, setJoinText] = useState('')
+  const [joinErr, setJoinErr] = useState<string | null>(null)
 
   useEffect(() => setTest({ kind: 'idle' }), [apiBase, username, password])
+
+  function applyJoinUrl() {
+    setJoinErr(null)
+    const fields = parseJoinUrl(joinText)
+    if (!fields) {
+      setJoinErr('解析失败：需要形如 gost-panel://add?api=...&user=...&pass=... 的链接')
+      return
+    }
+    if (fields.name !== undefined) setName(fields.name)
+    if (fields.apiBase !== undefined) setApiBase(fields.apiBase)
+    if (fields.username !== undefined) setUsername(fields.username)
+    if (fields.password !== undefined) setPassword(fields.password)
+    if (fields.logfeedUrl !== undefined) setLogfeedUrl(fields.logfeedUrl)
+    if (fields.logfeedToken !== undefined) setLogfeedToken(fields.logfeedToken)
+    if (fields.metricsUrl !== undefined) setMetricsUrl(fields.metricsUrl)
+    setJoinText('')
+    toast.success('已填入字段；建议点一下「测试连接」确认可达')
+  }
 
   async function runTest() {
     setTest({ kind: 'running' })
@@ -122,6 +177,37 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
       </DialogHeader>
 
       <div className="flex flex-col gap-2">
+        {!editing ? (
+          <FormSection
+            title="一键链接"
+            hint="无 github 访问的主机也能用：脚本优先从面板自身拉 gost 二进制（先在面板侧跑 pnpm fetch-binaries 预下载），github 仅作回退。"
+          >
+            <div className="flex flex-col gap-2">
+              <InstallCommand />
+              <TextareaField
+                value={joinText}
+                onChange={(e) => { setJoinText(e.target.value); setJoinErr(null) }}
+                placeholder="跑完后粘贴它打印的 gost-panel://add?... 链接到这里"
+                rows={3}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <div className="flex items-center gap-2">
+                <Button onClick={applyJoinUrl} disabled={!joinText.trim()}>
+                  <Sparkles size={13} /> 解析并填入
+                </Button>
+                {joinErr ? (
+                  <span className="text-[11px] text-[var(--color-danger)]">{joinErr}</span>
+                ) : (
+                  <span className="text-[11px] text-[var(--color-muted)]">
+                    或在下方手动填字段。
+                  </span>
+                )}
+              </div>
+            </div>
+          </FormSection>
+        ) : null}
+
         <FormSection title="基本">
           <FieldRow label="别名" hint="给这个连接起个好认的名字，例：家里 / 公司 / 测试">
             <TextField
