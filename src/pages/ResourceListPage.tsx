@@ -87,7 +87,7 @@ function Inner({ k }: { k: ResourceKey }) {
         <ul className="reveal-stagger flex flex-col">
           {data.list.map((item, idx) => (
             <ItemRow
-              key={item.name}
+              key={item.name || `__${idx}`}
               index={idx}
               resourceKey={k}
               item={item}
@@ -217,6 +217,45 @@ function describe(key: ResourceKey, item: GostItem): string | null {
   if (key === 'chains') {
     const n = ((item as { hops?: unknown[] }).hops ?? []).length
     return `${n} 跳点`
+  }
+  if (key === 'ingresses') {
+    const n = ((item as { rules?: unknown[] }).rules ?? []).length
+    return `${n} 规则`
+  }
+  if (key === 'routers') {
+    const n = ((item as { routes?: unknown[] }).routes ?? []).length
+    return `${n} 路由`
+  }
+  if (key === 'observers' || key === 'sds') {
+    const p = (item as { plugin?: { type?: string; addr?: string } }).plugin
+    const type = p?.type ?? ''
+    const addr = p?.addr ?? ''
+    if (!type && !addr) return null
+    const short = addr.length > 36 ? `${addr.slice(0, 34)}…` : addr
+    return [type, short].filter(Boolean).join(' → ')
+  }
+  if (key === 'recorders') {
+    type RecorderSink =
+      | { file?: { path?: string } }
+      | { tcp?: { addr?: string } }
+      | { redis?: { addr?: string } }
+      | { http?: { url?: string; addr?: string } }
+      | { plugin?: { type?: string; addr?: string } }
+    const r = item as RecorderSink
+    if ('file' in r && r.file) return `→ file: ${r.file.path ?? ''}`
+    if ('tcp' in r && r.tcp) return `→ tcp: ${r.tcp.addr ?? ''}`
+    if ('redis' in r && r.redis) return `→ redis: ${r.redis.addr ?? ''}`
+    if ('http' in r && r.http) return `→ http: ${r.http.url ?? r.http.addr ?? ''}`
+    if ('plugin' in r && r.plugin) {
+      const t = r.plugin.type ?? ''
+      const a = r.plugin.addr ?? ''
+      return `→ plugin ${t}: ${a}`
+    }
+    return null
+  }
+  if (key === 'limiters' || key === 'climiters' || key === 'rlimiters') {
+    const n = ((item as { limits?: unknown[] }).limits ?? []).length
+    return `${n} 条规则`
   }
   return null
 }
