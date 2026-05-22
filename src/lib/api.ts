@@ -1,4 +1,4 @@
-import axios, { type InternalAxiosRequestConfig } from 'axios'
+import axios, { isAxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { getActiveProfile } from './profiles'
 
 /**
@@ -36,4 +36,16 @@ export type Envelope<T> = {
   code?: number
   msg?: string
   data: T
+}
+
+/**
+ * 把 axios 错误剥成一句内层提示。gost 错误体习惯用 `msg`，少数走 `message`，
+ * 都没的话就退回 axios 自带 `message`。调用方按需自行拼前缀（例如 i18n 的「请求失败：」）。
+ */
+export function gostError(e: unknown): string {
+  if (isAxiosError(e)) {
+    const data = e.response?.data as { msg?: string; message?: string } | undefined
+    return data?.msg ?? data?.message ?? e.message
+  }
+  return (e as Error)?.message ?? String(e)
 }

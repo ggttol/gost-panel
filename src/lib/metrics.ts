@@ -78,7 +78,24 @@ export function useMetrics(intervalMs: number, enabled: boolean) {
     refetchInterval: enabled ? intervalMs : false,
     refetchIntervalInBackground: false,
     queryFn: async () => {
-      const res = await fetch(url, { mode: 'cors' })
+      const headers: Record<string, string> = {}
+      // 反代加了 basic auth 时，fetch 默认不带凭据，会直接 401。
+      // 仅当 URL 本身没内嵌 userinfo 时才补 Authorization 头，避免双重凭据冲突。
+      const profile = getActiveProfile()
+      if (profile && (profile.username || profile.password)) {
+        let embeddedUser: string
+        try {
+          embeddedUser = new URL(url).username
+        } catch {
+          embeddedUser = ''
+        }
+        if (!embeddedUser) {
+          const u = profile.username ?? ''
+          const p = profile.password ?? ''
+          headers.Authorization = 'Basic ' + btoa(`${u}:${p}`)
+        }
+      }
+      const res = await fetch(url, { mode: 'cors', headers })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const text = await res.text()
       return parsePromText(text)

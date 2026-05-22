@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { isAxiosError } from 'axios'
+import { gostError } from '@/lib/api'
 import {
   Dialog,
   DialogClose,
@@ -38,12 +38,7 @@ export function DeleteConfirmDialog({
       toast.success(T.resource.deleteSuccess(label))
       onOpenChange(false)
     } catch (e) {
-      if (isAxiosError(e)) {
-        const data = e.response?.data as { msg?: string } | undefined
-        setError(`${T.resource.requestFailed}：${data?.msg ?? e.message}`)
-      } else {
-        setError(`${T.resource.requestFailed}：${(e as Error).message}`)
-      }
+      setError(`${T.resource.requestFailed}：${gostError(e)}`)
     }
   }
 
