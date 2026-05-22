@@ -78,6 +78,7 @@ export function useCreateResource(key: ResourceKey) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['resource', key] })
+      qc.invalidateQueries({ queryKey: ['resource-names', key] })
       qc.invalidateQueries({ queryKey: ['config'] })
     },
   })
@@ -92,6 +93,7 @@ export function useUpdateResource(key: ResourceKey) {
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['resource', key] })
       qc.invalidateQueries({ queryKey: ['resource', key, vars.name] })
+      qc.invalidateQueries({ queryKey: ['resource-names', key] })
       qc.invalidateQueries({ queryKey: ['config'] })
     },
   })
@@ -105,6 +107,7 @@ export function useDeleteResource(key: ResourceKey) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['resource', key] })
+      qc.invalidateQueries({ queryKey: ['resource-names', key] })
       qc.invalidateQueries({ queryKey: ['config'] })
     },
   })

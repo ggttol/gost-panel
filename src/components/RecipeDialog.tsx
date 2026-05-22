@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { isAxiosError } from 'axios'
 import { Loader2 } from 'lucide-react'
 import { PasswordField } from '@/components/ui/PasswordField'
 import {
@@ -18,7 +17,7 @@ import { Button } from '@/components/ui/Button'
 import { FormSection, FieldRow, TextField } from '@/components/ui/Form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { EditorJson } from '@/components/ui/EditorJson'
-import { api } from '@/lib/api'
+import { api, gostError } from '@/lib/api'
 import { getActiveProfile } from '@/lib/profiles'
 import { defaultVars, substitute, type Recipe, type RecipeVar, type VarMap } from '@/lib/cookbook'
 import { RESOURCE_LABEL_ZH } from '@/lib/i18n'
@@ -252,9 +251,5 @@ function safeHost(url: string): string {
 }
 
 function errMsg(e: unknown): string {
-  if (isAxiosError(e)) {
-    const data = e.response?.data as { msg?: string } | undefined
-    return data?.msg ?? e.message
-  }
-  return (e as Error).message ?? String(e)
+  return gostError(e)
 }

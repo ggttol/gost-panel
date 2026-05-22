@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { isAxiosError } from 'axios'
+import { gostError } from '@/lib/api'
 import {
   Dialog,
   DialogClose,
@@ -253,11 +253,7 @@ function EditorBody({ mode, onDone }: { mode: EditorMode; onDone: () => void }) 
 }
 
 function extractErrMsg(e: unknown): string {
-  if (isAxiosError(e)) {
-    const data = e.response?.data as { msg?: string; message?: string } | undefined
-    return `${T.resource.requestFailed}：${data?.msg ?? data?.message ?? e.message}`
-  }
-  return `${T.resource.requestFailed}：${(e as Error).message ?? String(e)}`
+  return `${T.resource.requestFailed}：${gostError(e)}`
 }
 
 const NAME_STEMS: Partial<Record<ResourceKey, string>> = {

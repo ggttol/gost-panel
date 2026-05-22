@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios, { isAxiosError } from 'axios'
 import { toast } from 'sonner'
+import { gostError } from '@/lib/api'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import {
   Dialog,
@@ -73,11 +74,10 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
       const count = (res.data as { data?: { count?: number } })?.data?.count ?? 0
       setTest({ kind: 'ok', ms, count })
     } catch (e) {
-      const msg = isAxiosError(e)
-        ? e.response
-          ? `HTTP ${e.response.status} ${(e.response.data as { msg?: string })?.msg ?? ''}`.trim()
-          : e.message
-        : (e as Error).message
+      // 连通性测试场景下保留「HTTP <status>」前缀，便于一眼看出是 401/404/500 还是网络层报错。
+      const msg = isAxiosError(e) && e.response
+        ? `HTTP ${e.response.status} ${(e.response.data as { msg?: string })?.msg ?? ''}`.trim()
+        : gostError(e)
       setTest({ kind: 'fail', msg })
     }
   }
