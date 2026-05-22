@@ -11,6 +11,7 @@ import {
   type EditorMode,
 } from '@/components/ResourceEditorDialog'
 import { DeleteConfirmDialog } from '@/components/DeleteConfirmDialog'
+import { ClientAccessCard } from '@/components/ClientAccessCard'
 import { HelpBanner } from '@/components/ui/HelpBanner'
 import { RESOURCE_INTRO } from '@/lib/help'
 import { cn } from '@/lib/utils'
@@ -178,9 +179,27 @@ function ItemRow({
         </div>
       </div>
       {open ? (
-        <pre className="border-t border-[var(--color-border)] bg-[var(--color-surface-2)] text-[11px] px-12 py-3 overflow-x-auto font-mono leading-relaxed">
-          {JSON.stringify(item, null, 2)}
-        </pre>
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-2)] px-12 py-3">
+          {resourceKey === 'services' ? (
+            <>
+              {/* 列表里直接告诉用户「这条服务客户端怎么连」，比扔一堆 JSON
+                  有用得多。JSON 仍留在 details 里供排错。 */}
+              <ClientAccessCard service={item} />
+              <details className="text-[11px]">
+                <summary className="cursor-pointer text-[var(--color-muted)] hover:text-[var(--color-fg)] select-none">
+                  查看完整 JSON
+                </summary>
+                <pre className="mt-2 overflow-x-auto font-mono leading-relaxed text-[var(--color-fg-2)]">
+                  {JSON.stringify(item, null, 2)}
+                </pre>
+              </details>
+            </>
+          ) : (
+            <pre className="text-[11px] overflow-x-auto font-mono leading-relaxed">
+              {JSON.stringify(item, null, 2)}
+            </pre>
+          )}
+        </div>
       ) : null}
     </li>
   )
