@@ -29,18 +29,10 @@ export function WelcomePage() {
           <li>· 可选：实时日志（gost-logfeed 边车）和指标（Prometheus URL）</li>
           <li>· 密码以明文存 localStorage，请只在自己电脑上用</li>
         </ul>
-        <div className="mt-6 flex gap-2">
+        <div className="mt-6">
           <Button variant="accent" onClick={() => setAdding(true)}>
             <Plus size={14} /> 添加第一台主机
           </Button>
-          <a
-            href="https://github.com/ggttol/gost-panel#部署"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center h-8 px-3 text-[13px] rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] text-[var(--color-fg-2)] hover:text-[var(--color-fg)] transition-colors"
-          >
-            部署说明 ↗
-          </a>
         </div>
       </div>
       <AddHostDialog open={adding} onOpenChange={setAdding} />
