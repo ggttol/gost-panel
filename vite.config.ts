@@ -12,7 +12,8 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5173,
+    port: 5273,
+    strictPort: true,
     proxy: {
       '/proxy-metrics': {
         target: process.env.VITE_GOST_METRICS_TARGET ?? 'http://192.168.193.130:9000',

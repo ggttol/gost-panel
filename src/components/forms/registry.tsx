@@ -10,6 +10,14 @@ const HostsForm      = lazy(() => import('./HostsForm'))
 const ResolverForm   = lazy(() => import('./ResolverForm'))
 const HopForm        = lazy(() => import('./HopForm'))
 const ChainForm      = lazy(() => import('./ChainForm'))
+const IngressForm    = lazy(() => import('./IngressForm'))
+const RouterForm     = lazy(() => import('./RouterForm'))
+const ObserverForm   = lazy(() => import('./ObserverForm'))
+const RecorderForm   = lazy(() => import('./RecorderForm'))
+const SDForm         = lazy(() => import('./SDForm'))
+const LimiterForm    = lazy(() => import('./LimiterForm'))
+const CLimiterForm   = lazy(() => import('./CLimiterForm'))
+const RLimiterForm   = lazy(() => import('./RLimiterForm'))
 
 const REGISTRY: Partial<Record<ResourceKey, ComponentType<ResourceFormProps>>> = {
   services:   ServiceForm,
@@ -20,6 +28,14 @@ const REGISTRY: Partial<Record<ResourceKey, ComponentType<ResourceFormProps>>> =
   resolvers:  ResolverForm,
   hops:       HopForm,
   chains:     ChainForm,
+  ingresses:  IngressForm,
+  routers:    RouterForm,
+  observers:  ObserverForm,
+  recorders:  RecorderForm,
+  sds:        SDForm,
+  limiters:   LimiterForm,
+  climiters:  CLimiterForm,
+  rlimiters:  RLimiterForm,
 }
 
 export function hasForm(key: ResourceKey): boolean {
