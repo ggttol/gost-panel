@@ -141,11 +141,13 @@ function Body({ samples, history }: { samples: MetricSample[]; history: Point[] 
   const handlerErr  = sumBy(samples, 'gost_service_handler_errors_total')
   const chainErr    = sumBy(samples, 'gost_chain_errors_total')
 
-  const reqRates    = ratesOf(history, 'req')
-  const inRates     = ratesOf(history, 'inBytes')
-  const outRates    = ratesOf(history, 'outBytes')
-  const errRates    = ratesOf(history, 'handlerErr').map((v, i) => v + (ratesOf(history, 'chainErr')[i] ?? 0))
-  const connsSeries = history.map((p) => p.conns)
+  const reqRates        = ratesOf(history, 'req')
+  const inRates         = ratesOf(history, 'inBytes')
+  const outRates        = ratesOf(history, 'outBytes')
+  const handlerErrRates = ratesOf(history, 'handlerErr')
+  const chainErrRates   = ratesOf(history, 'chainErr')
+  const errRates        = handlerErrRates.map((v, i) => v + (chainErrRates[i] ?? 0))
+  const connsSeries     = history.map((p) => p.conns)
 
   const reqRateNow = reqRates.at(-1) ?? 0
   const inRateNow  = inRates.at(-1) ?? 0
@@ -185,8 +187,8 @@ function Body({ samples, history }: { samples: MetricSample[]; history: Point[] 
         <KpiCard label="错误合计 /s" value={fmtRate(errRateNow)} series={lastN(errRates, 60)} accent="danger" />
         <KpiCard label="入向 /s" value={fmtBytes(inRateNow) + '/s'} series={lastN(inRates, 60)} />
         <KpiCard label="出向 /s" value={fmtBytes(outRateNow) + '/s'} series={lastN(outRates, 60)} muted />
-        <KpiCard label={T.metrics.handlerErrors} value={fmtInt(handlerErr)} series={lastN(ratesOf(history, 'handlerErr'), 60)} accent="danger" />
-        <KpiCard label={T.metrics.chainErrors} value={fmtInt(chainErr)} series={lastN(ratesOf(history, 'chainErr'), 60)} accent="danger" />
+        <KpiCard label={T.metrics.handlerErrors} value={fmtInt(handlerErr)} series={lastN(handlerErrRates, 60)} accent="danger" />
+        <KpiCard label={T.metrics.chainErrors} value={fmtInt(chainErr)} series={lastN(chainErrRates, 60)} accent="danger" />
       </section>
 
       <section className="mb-8">

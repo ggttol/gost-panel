@@ -57,7 +57,12 @@ export function LogsPage() {
   const [enabledLevels, setEnabledLevels] = useState<Set<string>>(new Set())
   const [bufferCap, setBufferCap] = useState(1000)
   const [autoScroll, setAutoScroll] = useState(true)
-  const [connected, setConnected] = useState(false)
+  // 'open' = first message arrived or onopen fired.
+  // 'connecting' = the connection hasn't completed yet, or it's bouncing
+  //   transiently (we debounce open→non-open by 1.5s).
+  // 'closed' = the browser gave up (readyState === CLOSED + onerror) —
+  //   typically a hard error like wrong token / 4xx.
+  const [connState, setConnState] = useState<'connecting' | 'open' | 'closed'>('connecting')
   const [lines, setLines] = useState<Line[]>([])
 
   // Refs so the EventSource handler doesn't re-create on every state change.
@@ -75,12 +80,57 @@ export function LogsPage() {
     // Reset feed state when switching profile / URL.
     setLines([])
     pendingRef.current = []
-    setConnected(false)
+    setConnState('connecting')
     if (!sseUrl) return
     const es = new EventSource(sseUrl)
-    es.onopen = () => setConnected(true)
-    es.onerror = () => setConnected(false)
+
+    // Debounce "open" → "not open" transitions: browser EventSource fires
+    // onerror during transient blips while it auto-reconnects, but readyState
+    // is back to OPEN within ms. Without debouncing the badge flickers.
+    let downgradeTimer: ReturnType<typeof setTimeout> | null = null
+    const clearDowngrade = () => {
+      if (downgradeTimer) {
+        clearTimeout(downgradeTimer)
+        downgradeTimer = null
+      }
+    }
+    const scheduleDowngrade = () => {
+      if (downgradeTimer) return
+      downgradeTimer = setTimeout(() => {
+        downgradeTimer = null
+        // Re-check readyState — it may have recovered to OPEN during the wait.
+        if (es.readyState === EventSource.OPEN) {
+          setConnState('open')
+        } else if (es.readyState === EventSource.CLOSED) {
+          setConnState('closed')
+        } else {
+          setConnState('connecting')
+        }
+      }, 1500)
+    }
+
+    es.onopen = () => {
+      clearDowngrade()
+      setConnState('open')
+    }
+    es.onerror = () => {
+      // readyState === CLOSED + onerror = browser gave up reconnecting,
+      // usually a hard 4xx (bad token / URL). Surface it immediately.
+      if (es.readyState === EventSource.CLOSED) {
+        clearDowngrade()
+        setConnState('closed')
+        es.close()
+        return
+      }
+      // Transient — debounce. If readyState bounces back to OPEN within 1.5s,
+      // the badge never visibly switches.
+      scheduleDowngrade()
+    }
     es.onmessage = (ev) => {
+      // Receiving any message implies the stream is healthy, even if the
+      // browser hasn't fired onopen yet (we may have been mid-reconnect).
+      clearDowngrade()
+      setConnState('open')
       if (pausedRef.current) return
       const text = ev.data
       const parsed = tryJson(text)
@@ -103,6 +153,7 @@ export function LogsPage() {
       })
     }, 100)
     return () => {
+      clearDowngrade()
       clearInterval(flush)
       es.close()
     }
@@ -176,8 +227,25 @@ export function LogsPage() {
           <p className="text-[12px] font-mono text-[var(--color-muted)] mt-2 flex items-center gap-2">
             <span>{sseUrl ? `SSE ${maskQuery(sseUrl)}` : '未配置 logfeed'}</span>
             <span>·</span>
-            <span className={connected ? 'text-[var(--color-accent)]' : 'text-[var(--color-warn)]'}>
-              {connected ? 'streaming' : '断开中…'}
+            <span
+              className={
+                connState === 'open'
+                  ? 'text-[var(--color-accent)]'
+                  : connState === 'connecting'
+                    ? 'text-[var(--color-warn)]'
+                    : 'text-[var(--color-danger)]'
+              }
+              title={
+                connState === 'closed'
+                  ? '浏览器停止重连，多半是 token / URL 不对'
+                  : undefined
+              }
+            >
+              {connState === 'open'
+                ? 'streaming'
+                : connState === 'connecting'
+                  ? '重连中…'
+                  : '已断开'}
             </span>
             <span>·</span>
             <span>缓冲 {lines.length}/{bufferCap} 行</span>
@@ -275,7 +343,13 @@ export function LogsPage() {
                 <span className="text-[10px] opacity-70">部署边车看 README · 「日志边车」一节</span>
               </>
             ) : lines.length === 0 ? (
-              connected ? <span>已连接，等待 gost 输出…（触发一些流量看效果）</span> : <span>正在连接日志流…</span>
+              connState === 'open' ? (
+                <span>已连接，等待 gost 输出…（触发一些流量看效果）</span>
+              ) : connState === 'closed' ? (
+                <span className="text-[var(--color-danger)]">连接被拒绝（检查 token / URL）</span>
+              ) : (
+                <span>正在连接日志流…</span>
+              )
             ) : (
               <span>当前筛选无匹配（共 {lines.length} 行）</span>
             )}
