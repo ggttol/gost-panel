@@ -98,6 +98,50 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
 
   useEffect(() => setTest({ kind: 'idle' }), [apiBase, username, password])
 
+  // 打开对话框（且不是编辑场景、用户没在 joinText 里输东西）时主动嗅探剪贴板。
+  // 用户刚从 ssh 复制完 install.sh 打印的 gost-panel://... 链接转头来面板，
+  // 直接预填进去；权限失败 / 内容不匹配都静默放过。
+  useEffect(() => {
+    if (editing) return
+    if (!navigator.clipboard?.readText) return
+    let cancelled = false
+    navigator.clipboard.readText().then(
+      (text) => {
+        if (cancelled) return
+        const trimmed = text.trim()
+        if (!trimmed.startsWith('gost-panel://')) return
+        // 用户已经在框里改过东西就别覆盖
+        setJoinText((cur) => (cur ? cur : trimmed))
+      },
+      () => { /* 权限被拒 / 不安全上下文：静默 */ },
+    )
+    return () => { cancelled = true }
+    // editing 在一次 dialog open 内是稳定的；其他依赖故意省略
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** 直接用入参跑一次连通性测试 —— 用于「粘贴后自动测」，避开 setState 异步生效问题。 */
+  async function runTestWith(apiOverride: string, userOverride: string, passOverride: string) {
+    setTest({ kind: 'running' })
+    const t0 = performance.now()
+    try {
+      const res = await axios.get(`${trimSlash(apiOverride)}/config/services`, {
+        timeout: 6000,
+        auth: userOverride || passOverride
+          ? { username: userOverride, password: passOverride }
+          : undefined,
+      })
+      const ms = Math.round(performance.now() - t0)
+      const count = (res.data as { data?: { count?: number } })?.data?.count ?? 0
+      setTest({ kind: 'ok', ms, count })
+    } catch (e) {
+      const msg = isAxiosError(e) && e.response
+        ? `HTTP ${e.response.status} ${(e.response.data as { msg?: string })?.msg ?? ''}`.trim()
+        : gostError(e)
+      setTest({ kind: 'fail', msg })
+    }
+  }
+
   function applyJoinUrl() {
     setJoinErr(null)
     const fields = parseJoinUrl(joinText)
@@ -113,27 +157,17 @@ function Body({ initial, onDone }: { initial: HostProfile | null; onDone: () => 
     if (fields.logfeedToken !== undefined) setLogfeedToken(fields.logfeedToken)
     if (fields.metricsUrl !== undefined) setMetricsUrl(fields.metricsUrl)
     setJoinText('')
-    toast.success('已填入字段；建议点一下「测试连接」确认可达')
+    // install.sh 刚跑完几乎必然在线，主动测一下省用户一次点击
+    if (fields.apiBase) {
+      toast.success('已填入字段，正在测试连接…')
+      void runTestWith(fields.apiBase, fields.username ?? '', fields.password ?? '')
+    } else {
+      toast.success('已填入字段')
+    }
   }
 
   async function runTest() {
-    setTest({ kind: 'running' })
-    const t0 = performance.now()
-    try {
-      const res = await axios.get(`${trimSlash(apiBase)}/config/services`, {
-        timeout: 6000,
-        auth: username || password ? { username, password } : undefined,
-      })
-      const ms = Math.round(performance.now() - t0)
-      const count = (res.data as { data?: { count?: number } })?.data?.count ?? 0
-      setTest({ kind: 'ok', ms, count })
-    } catch (e) {
-      // 连通性测试场景下保留「HTTP <status>」前缀，便于一眼看出是 401/404/500 还是网络层报错。
-      const msg = isAxiosError(e) && e.response
-        ? `HTTP ${e.response.status} ${(e.response.data as { msg?: string })?.msg ?? ''}`.trim()
-        : gostError(e)
-      setTest({ kind: 'fail', msg })
-    }
+    return runTestWith(apiBase, username, password)
   }
 
   function submit() {

@@ -5,6 +5,17 @@
 # 用法：
 #   curl -fsSL http://<panel-host>/install.sh | sudo bash
 #   curl -fsSL http://<panel-host>/install.sh | sudo bash -s -- --name 家里
+#   curl -fsSL http://<panel-host>/install.sh | sudo bash -s -- --with-caddy
+#
+# 参数：
+#   --name <字符串>       面板里显示的别名（默认 hostname）
+#   --with-caddy          顺手装 Caddy 反代 18000 → api/metrics/logfeed 并加
+#                         CORS 头，省去面板端手动配跨域。生产部署强烈推荐。
+#   --api-port <n>        gost API 端口（默认 18080）
+#   --metrics-port <n>    metrics 端口（默认 9000）
+#   --logfeed-port <n>    logfeed SSE 端口（默认 19090）
+#   --caddy-port <n>      Caddy 统一暴露端口（默认 18000，仅 --with-caddy 用）
+#   --gost-version <x.y.z>  指定 gost 版本（默认 3.2.6）
 #
 # 干的事：
 #   1. 优先从面板拉 gost 二进制（适合无 github 访问的内网主机）；
@@ -14,12 +25,14 @@
 #   4. 创建 gost.service systemd unit
 #   5. 部署内联的 gost-logfeed.mjs 到 /usr/local/bin（需要 node）
 #   6. 创建 gost-logfeed.service systemd unit
+#   6.5 [--with-caddy] 装 Caddy、写 /etc/gost/Caddyfile、起 gost-caddy.service
 #   7. 打印 gost-panel://add?... 链接 — 粘到面板即可
 #
 # 默认端口：
 #   18080  gost API
 #   9000   metrics
 #   19090  logfeed SSE
+#   18000  Caddy 反代（仅 --with-caddy）
 #
 # 已存在的 /etc/gost/gost.yaml 不会被覆盖；重新跑会直接读已有配置生成链接。
 #
@@ -37,6 +50,8 @@ GOST_VERSION="${GOST_VERSION:-3.2.6}"
 GOST_API_PORT="${GOST_API_PORT:-18080}"
 METRICS_PORT="${METRICS_PORT:-9000}"
 LOGFEED_PORT="${LOGFEED_PORT:-19090}"
+CADDY_PORT="${CADDY_PORT:-18000}"
+WITH_CADDY=0
 PANEL_NAME=""
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +61,8 @@ while [[ $# -gt 0 ]]; do
     --api-port) GOST_API_PORT="${2:-}"; shift 2 ;;
     --metrics-port) METRICS_PORT="${2:-}"; shift 2 ;;
     --logfeed-port) LOGFEED_PORT="${2:-}"; shift 2 ;;
+    --caddy-port) CADDY_PORT="${2:-}"; shift 2 ;;
+    --with-caddy) WITH_CADDY=1; shift ;;
     *) echo "未知参数: $1" >&2; exit 1 ;;
   esac
 done
@@ -280,6 +297,105 @@ if ! systemctl is-active --quiet gost-logfeed.service; then
 fi
 
 #
+# 6.5. 可选：Caddy 反代解决 CORS
+#
+if [[ "$WITH_CADDY" -eq 1 ]]; then
+  step "[+] 可选：Caddy 反代（CORS）"
+
+  if ! command -v caddy >/dev/null 2>&1; then
+    # 没现成的 caddy，直接拉 caddyserver.com 的静态二进制
+    case "$ARCH" in
+      amd64) CADDY_ARCH=amd64 ;;
+      arm64) CADDY_ARCH=arm64 ;;
+      armv7) CADDY_ARCH=armv7 ;;
+      *) die "暂不支持给这个架构装 caddy: $ARCH（手动装 caddy 再 --with-caddy 重跑）" ;;
+    esac
+    cd_url="https://caddyserver.com/api/download?os=${OS}&arch=${CADDY_ARCH}"
+    log "下载 caddy: $cd_url"
+    curl -fsSL "$cd_url" -o /usr/local/bin/caddy \
+      || die "caddy 下载失败"
+    chmod +x /usr/local/bin/caddy
+    ok "/usr/local/bin/caddy 已安装：$(/usr/local/bin/caddy version | head -1)"
+  else
+    ok "已有 caddy：$(caddy version | head -1)"
+  fi
+
+  mkdir -p /etc/gost
+  cat > /etc/gost/Caddyfile <<EOF
+# 由 gost-panel install.sh --with-caddy 生成
+# 目的：在一个端口上统一暴露 gost API / metrics / logfeed，并加 CORS 响应头，
+# 让面板（浏览器 SPA）能直接跨域访问。
+:${CADDY_PORT} {
+    # OPTIONS 预检直接 204
+    @preflight method OPTIONS
+    handle @preflight {
+        header Access-Control-Allow-Origin "*"
+        header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        header Access-Control-Allow-Headers "*"
+        header Access-Control-Max-Age "86400"
+        respond 204
+    }
+
+    # 其它所有响应都加 CORS 头
+    header {
+        Access-Control-Allow-Origin "*"
+        Access-Control-Allow-Credentials "true"
+        defer
+    }
+
+    # gost REST API
+    handle /api/* {
+        reverse_proxy localhost:${GOST_API_PORT}
+    }
+
+    # Prometheus 指标
+    handle /metrics {
+        reverse_proxy localhost:${METRICS_PORT}
+    }
+
+    # logfeed SSE — flush_interval -1 关掉响应缓冲，让 event 立刻流出去
+    handle /stream {
+        reverse_proxy localhost:${LOGFEED_PORT} {
+            flush_interval -1
+        }
+    }
+    handle /health {
+        reverse_proxy localhost:${LOGFEED_PORT}
+    }
+}
+EOF
+  ok "/etc/gost/Caddyfile（监听 :${CADDY_PORT}）"
+
+  if [[ ! -f /etc/systemd/system/gost-caddy.service ]]; then
+    cat > /etc/systemd/system/gost-caddy.service <<'EOF'
+[Unit]
+Description=Caddy reverse proxy for gost (CORS-enabled)
+After=network-online.target gost.service gost-logfeed.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/caddy run --config /etc/gost/Caddyfile --adapter caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/gost/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    ok "新建 gost-caddy.service"
+  else
+    ok "gost-caddy.service 已存在"
+  fi
+  systemctl daemon-reload
+  systemctl enable --now gost-caddy.service >/dev/null
+  sleep 1
+  if ! systemctl is-active --quiet gost-caddy.service; then
+    warn "gost-caddy.service 启动失败，看：journalctl -u gost-caddy -n 50"
+  fi
+fi
+
+#
 # 7. 输出
 #
 step "[7/7] 完成"
@@ -297,9 +413,16 @@ urlenc() {
   printf '%s' "$out"
 }
 
-API_URL="http://${HOST_IP}:${GOST_API_PORT}/api"
-METRICS_URL="http://${HOST_IP}:${METRICS_PORT}/metrics"
-LOGFEED_URL="http://${HOST_IP}:${LOGFEED_PORT}"
+if [[ "$WITH_CADDY" -eq 1 ]]; then
+  # Caddy 模式：所有路径走统一端口，浏览器面板拿到的是 CORS 友好的地址
+  API_URL="http://${HOST_IP}:${CADDY_PORT}/api"
+  METRICS_URL="http://${HOST_IP}:${CADDY_PORT}/metrics"
+  LOGFEED_URL="http://${HOST_IP}:${CADDY_PORT}"
+else
+  API_URL="http://${HOST_IP}:${GOST_API_PORT}/api"
+  METRICS_URL="http://${HOST_IP}:${METRICS_PORT}/metrics"
+  LOGFEED_URL="http://${HOST_IP}:${LOGFEED_PORT}"
+fi
 
 JOIN_URL="gost-panel://add"
 JOIN_URL+="?name=$(urlenc "$HOST_NAME")"
@@ -312,7 +435,7 @@ JOIN_URL+="&metrics=$(urlenc "$METRICS_URL")"
 
 echo
 echo "${c_grn}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c_rst}"
-echo "gost + logfeed 已就绪。把下面这一行粘到面板「添加主机 → 粘贴一键链接」："
+echo "gost + logfeed${WITH_CADDY:+ + caddy} 已就绪。把下面这一行粘到面板「添加主机 → 一键链接」："
 echo
 echo "${c_cyn}${JOIN_URL}${c_rst}"
 echo
@@ -324,9 +447,17 @@ echo "  API 密码    $GOST_PASS"
 echo "  logfeed     $LOGFEED_URL"
 echo "  logfeed tok $LOGFEED_TOKEN"
 echo "  metrics     $METRICS_URL"
+if [[ "$WITH_CADDY" -eq 1 ]]; then
+  echo
+  echo "Caddy 反代：:${CADDY_PORT} → api(:${GOST_API_PORT}) / metrics(:${METRICS_PORT}) / logfeed(:${LOGFEED_PORT})"
+  echo "原始端口仍开放，仅供本机排错；浏览器面板走 Caddy 端口避开 CORS"
+fi
 echo "${c_grn}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c_rst}"
 echo
 echo "排错命令："
 echo "  systemctl status gost         # gost 自身"
 echo "  systemctl status gost-logfeed # 日志边车"
+if [[ "$WITH_CADDY" -eq 1 ]]; then
+  echo "  systemctl status gost-caddy   # CORS 反代"
+fi
 echo "  curl -u ${GOST_USER}:${GOST_PASS} ${API_URL}/config/services"

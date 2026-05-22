@@ -32,7 +32,7 @@ import type { ServiceScenario } from '@/lib/help'
 import { pruneEmpty } from '@/lib/utils'
 
 export type EditorMode =
-  | { kind: 'create'; key: ResourceKey }
+  | { kind: 'create'; key: ResourceKey; presetBody?: Record<string, unknown>; presetName?: string }
   | { kind: 'edit'; key: ResourceKey; original: GostItem }
 
 export function ResourceEditorDialog({
@@ -55,13 +55,18 @@ function EditorBody({ mode, onDone }: { mode: EditorMode; onDone: () => void }) 
   const def = RESOURCES.find((r) => r.key === mode.key)!
   const label = RESOURCE_LABEL_ZH[mode.key]
 
-  const initialName = mode.kind === 'edit' ? mode.original.name : ''
+  const initialName =
+    mode.kind === 'edit' ? mode.original.name : (mode.presetName ?? '')
   const initialValue = useMemo<Record<string, unknown>>(() => {
     if (mode.kind === 'edit') {
       const rest: Record<string, unknown> = { ...mode.original }
       delete rest.name
       delete rest.status
       return rest
+    }
+    // 克隆模式：拿源资源的 body 当起点（已剥 name / status），仍按 create 语义走
+    if (mode.presetBody) {
+      return structuredClone(mode.presetBody)
     }
     const tpl = { ...RESOURCE_TEMPLATES[mode.key] }
     delete (tpl as { name?: unknown }).name

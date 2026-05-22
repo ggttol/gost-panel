@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useParams, Navigate, Link } from 'react-router-dom'
-import { ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { ChevronRight, Plus, RefreshCw, Copy, Trash2, ChefHat } from 'lucide-react'
+import { toast } from 'sonner'
 import { isResourceKey, RESOURCES, type ResourceKey } from '@/lib/resources'
-import { useResourceList, type GostItem } from '@/lib/queries'
+import { useDeleteResource, useResourceList, type GostItem } from '@/lib/queries'
+import { gostError } from '@/lib/api'
 import { RESOURCE_LABEL_ZH, STATE_LABEL_ZH, T } from '@/lib/i18n'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -31,6 +33,14 @@ function Inner({ k }: { k: ResourceKey }) {
   const [editorMode, setEditorMode] = useState<EditorMode | null>(null)
   const [delName, setDelName] = useState<string | null>(null)
   const [delOpen, setDelOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const del = useDeleteResource(k)
+
+  // 切换资源类型时清空多选 —— 避免「不同 key 下相同名字误中招」
+  if (selected.size > 0 && data && !data.list.some((it) => selected.has(it.name))) {
+    setSelected(new Set())
+  }
 
   function openCreate() {
     setEditorMode({ kind: 'create', key: k })
@@ -40,9 +50,56 @@ function Inner({ k }: { k: ResourceKey }) {
     setEditorMode({ kind: 'edit', key: k, original: item })
     setEditorOpen(true)
   }
+  function openClone(item: GostItem) {
+    // 把源资源剥掉 name/status，留下 body 当 preset；新名字默认 -copy 后缀
+    const body: Record<string, unknown> = { ...item }
+    delete body.name
+    delete body.status
+    const existing = new Set((data?.list ?? []).map((it) => it.name))
+    let presetName = `${item.name}-copy`
+    let i = 2
+    while (existing.has(presetName)) presetName = `${item.name}-copy-${i++}`
+    setEditorMode({ kind: 'create', key: k, presetBody: body, presetName })
+    setEditorOpen(true)
+  }
   function openDelete(name: string) {
     setDelName(name)
     setDelOpen(true)
+  }
+  function toggleSelect(name: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+  function selectAll() {
+    setSelected(new Set((data?.list ?? []).map((it) => it.name).filter(Boolean)))
+  }
+  function clearSelection() {
+    setSelected(new Set())
+  }
+  async function bulkDelete() {
+    const names = Array.from(selected)
+    if (names.length === 0) return
+    if (!confirm(`确认删除 ${names.length} 条「${label}」？\n\n${names.join(' · ')}\n\n该操作不可撤销。`)) return
+    setBulkRunning(true)
+    const failed: Array<{ name: string; msg: string }> = []
+    for (const name of names) {
+      try {
+        await del.mutateAsync(name)
+      } catch (e) {
+        failed.push({ name, msg: gostError(e) })
+      }
+    }
+    setBulkRunning(false)
+    setSelected(new Set())
+    if (failed.length === 0) {
+      toast.success(`已删除 ${names.length} 条`)
+    } else {
+      toast.error(`${names.length - failed.length} 条成功，${failed.length} 条失败：${failed.map((f) => f.name).join(', ')}`)
+    }
   }
 
   return (
@@ -78,12 +135,30 @@ function Inner({ k }: { k: ResourceKey }) {
         <HelpBanner intro={RESOURCE_INTRO[k]} resourceKey={k} />
       </div>
 
+      {selected.size > 0 ? (
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[12px]">
+          <span className="font-medium">已选 {selected.size} 条</span>
+          <span className="text-[var(--color-muted)] truncate flex-1 font-mono text-[11px]">
+            {Array.from(selected).slice(0, 6).join(' · ')}{selected.size > 6 ? ' …' : ''}
+          </span>
+          <Button size="sm" variant="ghost" onClick={selectAll} disabled={!data || selected.size >= data.count}>
+            全选
+          </Button>
+          <Button size="sm" variant="ghost" onClick={clearSelection}>
+            取消
+          </Button>
+          <Button size="sm" variant="danger" onClick={bulkDelete} disabled={bulkRunning}>
+            <Trash2 size={12} /> {bulkRunning ? '删除中…' : '删除选中'}
+          </Button>
+        </div>
+      ) : null}
+
       {isLoading ? (
         <Skeleton />
       ) : error ? (
         <ErrorBox error={error} />
       ) : !data || data.count === 0 ? (
-        <Empty label={label} />
+        <Empty label={label} resourceKey={k} onCreate={openCreate} />
       ) : (
         <ul className="reveal-stagger flex flex-col">
           {data.list.map((item, idx) => (
@@ -92,7 +167,10 @@ function Inner({ k }: { k: ResourceKey }) {
               index={idx}
               resourceKey={k}
               item={item}
+              selected={selected.has(item.name)}
+              onToggleSelect={() => toggleSelect(item.name)}
               onEdit={() => openEdit(item)}
+              onClone={() => openClone(item)}
               onDelete={() => openDelete(item.name)}
             />
           ))}
@@ -118,13 +196,19 @@ function ItemRow({
   index,
   resourceKey,
   item,
+  selected,
+  onToggleSelect,
   onEdit,
+  onClone,
   onDelete,
 }: {
   index: number
   resourceKey: ResourceKey
   item: GostItem
+  selected: boolean
+  onToggleSelect: () => void
   onEdit: () => void
+  onClone: () => void
   onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -135,9 +219,18 @@ function ItemRow({
       className={cn(
         'group border-b border-[var(--color-border)] last:border-b-0',
         'hover:bg-[var(--color-surface-2)] transition-colors duration-100',
+        selected && 'bg-[var(--color-accent-soft)]',
       )}
     >
       <div className="flex items-center gap-3 px-4 py-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 h-3.5 w-3.5 accent-[var(--color-accent)] cursor-pointer"
+          aria-label={`选中 ${item.name}`}
+        />
         <button
           onClick={() => setOpen((v) => !v)}
           className="flex items-center gap-3 min-w-0 text-left flex-1 -mx-1 px-1"
@@ -172,6 +265,9 @@ function ItemRow({
           ) : null}
           <Button size="sm" variant="ghost" onClick={onEdit}>
             {T.common.edit}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClone} title="基于这一条新建">
+            <Copy size={12} /> 克隆
           </Button>
           <Button size="sm" variant="ghost" onClick={onDelete}>
             {T.common.delete}
@@ -298,7 +394,22 @@ function Skeleton() {
   )
 }
 
-function Empty({ label }: { label: string }) {
+function Empty({
+  label,
+  resourceKey,
+  onCreate,
+}: {
+  label: string
+  resourceKey: ResourceKey
+  onCreate: () => void
+}) {
+  // 菜谱里全部都是基于 services 的整套配方，所以只在 services / chains / hops /
+  // bypasses / admissions / hosts / resolvers / limiters 这类「会被 service 引用的」
+  // 资源页面才指向菜谱。telemetry 几个不引导，避免误导新手。
+  const cookbookHelpful = new Set<ResourceKey>([
+    'services', 'chains', 'hops', 'bypasses', 'admissions',
+    'hosts', 'resolvers', 'limiters', 'climiters', 'rlimiters',
+  ])
   return (
     <div className="border border-dashed border-[var(--color-border)] rounded-lg p-12 text-center">
       <div className="eyebrow mb-2">没有配置</div>
@@ -307,6 +418,18 @@ function Empty({ label }: { label: string }) {
       </div>
       <div className="text-[12px] text-[var(--color-muted)] mt-1">
         点右上角「{T.common.create}」开始第一条。
+      </div>
+      <div className="mt-5 flex items-center justify-center gap-2 flex-wrap">
+        <Button variant="accent" size="sm" onClick={onCreate}>
+          <Plus size={12} /> {T.common.create}
+        </Button>
+        {cookbookHelpful.has(resourceKey) ? (
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/cookbook">
+              <ChefHat size={12} /> 看场景菜谱
+            </Link>
+          </Button>
+        ) : null}
       </div>
     </div>
   )
