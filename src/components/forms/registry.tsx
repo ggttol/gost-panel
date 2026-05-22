@@ -1,30 +1,7 @@
-import { lazy, Suspense, type ComponentType } from 'react'
+import { Suspense } from 'react'
 import type { ResourceKey } from '@/lib/resources'
 import type { ResourceFormProps } from './types'
-
-const ServiceForm    = lazy(() => import('./ServiceForm'))
-const AutherForm     = lazy(() => import('./AutherForm'))
-const BypassForm     = lazy(() => import('./BypassForm'))
-const AdmissionForm  = lazy(() => import('./AdmissionForm'))
-const HostsForm      = lazy(() => import('./HostsForm'))
-const ResolverForm   = lazy(() => import('./ResolverForm'))
-const HopForm        = lazy(() => import('./HopForm'))
-const ChainForm      = lazy(() => import('./ChainForm'))
-
-const REGISTRY: Partial<Record<ResourceKey, ComponentType<ResourceFormProps>>> = {
-  services:   ServiceForm,
-  authers:    AutherForm,
-  bypasses:   BypassForm,
-  admissions: AdmissionForm,
-  hosts:      HostsForm,
-  resolvers:  ResolverForm,
-  hops:       HopForm,
-  chains:     ChainForm,
-}
-
-export function hasForm(key: ResourceKey): boolean {
-  return key in REGISTRY
-}
+import { REGISTRY } from './registry.helpers'
 
 export function ResourceForm({
   resourceKey,

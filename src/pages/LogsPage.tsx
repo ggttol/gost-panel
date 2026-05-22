@@ -213,7 +213,11 @@ function LogRow({ line }: { line: Line }) {
 }
 
 function Pretty({ obj }: { obj: Record<string, unknown> }) {
-  const { time: _t, level: _l, msg, ...rest } = obj as { time?: unknown; level?: unknown; msg?: unknown; [k: string]: unknown }
+  const rest: Record<string, unknown> = { ...obj }
+  delete rest.time
+  delete rest.level
+  delete rest.msg
+  const msg = obj.msg
   return (
     <span>
       {typeof msg === 'string' ? <span className="text-[var(--color-fg)]">{msg}</span> : null}

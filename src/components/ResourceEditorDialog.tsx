@@ -2,18 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { isAxiosError } from 'axios'
 import {
-  Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog'
+import { Dialog, DialogClose } from '@/components/ui/Dialog.primitives'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 import { EditorJson } from '@/components/ui/EditorJson'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { Tabs, TabsContent } from '@/components/ui/Tabs.primitives'
 import { RESOURCES, type ResourceKey } from '@/lib/resources'
 import { RESOURCE_LABEL_ZH, T } from '@/lib/i18n'
 import {
@@ -23,7 +23,8 @@ import {
   type GostItem,
 } from '@/lib/queries'
 import { RESOURCE_TEMPLATES } from '@/lib/templates'
-import { hasForm, ResourceForm } from '@/components/forms/registry'
+import { ResourceForm } from '@/components/forms/registry'
+import { hasForm } from '@/components/forms/registry.helpers'
 import { HelpBanner } from '@/components/ui/HelpBanner'
 import { ScenarioPicker } from '@/components/forms/ScenarioPicker'
 import { RESOURCE_INTRO } from '@/lib/help'
@@ -57,7 +58,9 @@ function EditorBody({ mode, onDone }: { mode: EditorMode; onDone: () => void }) 
   const initialName = mode.kind === 'edit' ? mode.original.name : ''
   const initialValue = useMemo<Record<string, unknown>>(() => {
     if (mode.kind === 'edit') {
-      const { name: _n, status: _s, ...rest } = mode.original
+      const rest: Record<string, unknown> = { ...mode.original }
+      delete rest.name
+      delete rest.status
       return rest
     }
     const tpl = { ...RESOURCE_TEMPLATES[mode.key] }
